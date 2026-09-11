@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Biosyn — Painéis de Controle de Estoque</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    background: #0F264F; padding: 24px;
+  }
+  .wrap { width: 100%; max-width: 640px; }
+  .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 28px; }
+  .brand .dot { width: 34px; height: 34px; border-radius: 50%; background: #fff; display:flex; align-items:center; justify-content:center; color:#173A7A; font-weight:bold; }
+  .brand span { color: #9FB6D2; font-weight: 700; letter-spacing: 2px; font-size: 14px; }
+  h1 { color: #fff; font-size: 26px; margin: 0 0 6px; }
+  p.sub { color: #CBD8EC; margin: 0 0 28px; font-size: 14px; }
+  .card {
+    display: block; background: #fff; border-radius: 14px; padding: 20px 22px; margin-bottom: 14px;
+    text-decoration: none; color: #16233A; box-shadow: 0 8px 24px rgba(0,0,0,.18);
+  }
+  .card h2 { margin: 0 0 4px; font-size: 17px; color: #173A7A; }
+  .card p { margin: 0; font-size: 13px; color: #64748B; }
+  .card:active { transform: scale(0.99); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="brand"><div class="dot">◆</div><span>BIOSYN</span></div>
+    <h1>Painéis de Controle de Estoque</h1>
+    <p class="sub">Selecione o painel que deseja abrir.</p>
+    <a class="card" href="./estoques-especiais.html">
+      <h2>Estoques Especiais</h2>
+      <p>EPIs, Produtos Controlados e Materiais Gráficos (MKT)</p>
+    </a>
+    <a class="card" href="./mistura-fina.html">
+      <h2>Mistura Fina</h2>
+      <p>Produção, pesagem e controle da Sala de Mistura Fina</p>
+    </a>
+  </div>
+</body>
+</html>

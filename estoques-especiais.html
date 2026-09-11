@@ -1,0 +1,2701 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Painel de Controle de Estoque — Biosyn</title>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --navy: #173a7a;
+    --navy-deep: #0f264f;
+    --blue: #144272;
+    --accent: #2C74B3;
+    --accent-light: #5FA0D6;
+    --bg: #F1F5F9;
+    --card: #FFFFFF;
+    --ink: #16233A;
+    --ink-faint: #64748B;
+    --line: #E2E8F0;
+    --line-soft: #EEF2F7;
+    --danger: #B3261E;
+    --danger-bg: #FCECEB;
+    --amber: #B7791F;
+    --amber-bg: #FBF3E4;
+    --slate: #6B7688;
+    --font: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; padding:0; background:var(--navy-deep); }
+  body{ font-family: var(--font); color: var(--ink); }
+
+  .sc-shell{ display:flex; min-height:100vh; width:100%; background: var(--bg); }
+
+  .sc-sidebar{
+    width: 246px; flex-shrink:0; background: var(--navy);
+    padding: 22px 16px; display:flex; flex-direction:column; gap:2px;
+    position:sticky; top:0; height:100vh; overflow:auto; color:#EAF1FA;
+  }
+  .sc-brand{ display:flex; align-items:center; gap:10px; padding: 2px 4px 18px; }
+  .sc-brand-icon{ width:36px; height:36px; border-radius:9px; background:#fff; display:flex; align-items:center; justify-content:center; flex-shrink:0; padding:4px; overflow:hidden; }
+  .sc-brand-title{ font-size:13.5px; font-weight:700; letter-spacing:.2px; line-height:1.25; color:#fff; }
+  .sc-brand-sub{ font-size:10.5px; color: #9FB6D2; margin-top:2px; letter-spacing:.3px; }
+
+  .sc-visaogeral{ display:flex; align-items:center; gap:8px; width:100%; background:transparent; border:1px solid rgba(255,255,255,.22); color:#D6E4F5; padding:9px 12px; border-radius:8px; cursor:pointer; font-family:inherit; font-size:12.5px; font-weight:600; margin:4px 0 12px; }
+  .sc-visaogeral:hover{ background: rgba(255,255,255,.08); }
+  .sc-visaogeral.is-active{ background:#fff; color:var(--navy); border-color:#fff; }
+  .sc-roomswitch{ display:flex; flex-direction:column; gap:6px; margin: 4px 0 18px; padding: 12px; background: rgba(255,255,255,.06); border-radius:10px; }
+  .sc-roomswitch-label{ font-size:10px; text-transform:uppercase; letter-spacing:.6px; color:#9FB6D2; margin-bottom:2px; padding: 0 2px;}
+  .sc-roombtn{ display:flex; align-items:center; gap:8px; background:transparent; border:1px solid transparent; color:#D6E4F5; padding:8px 9px; border-radius:7px; cursor:pointer; text-align:left; font-family:inherit; font-size:12px; }
+  .sc-roombtn:hover{ background: rgba(255,255,255,.08); }
+  .sc-roombtn.is-active{ background:#fff; color: var(--navy); font-weight:700; }
+  .sc-roombtn svg{ flex-shrink:0; }
+
+  .sc-nav-groupLabel{ font-size:10px; color:#8AA3C2; margin: 16px 8px 4px; letter-spacing:.5px; text-transform:uppercase; }
+  .sc-navitem{
+    display:flex; align-items:center; gap:9px; width:100%;
+    background:transparent; border:none; text-align:left;
+    padding: 8px 9px; border-radius:7px; cursor:pointer;
+    font-family: var(--font); font-size:12.5px; color: #D6E4F5;
+  }
+  .sc-navitem:hover{ background: rgba(255,255,255,.08); }
+  .sc-navitem.is-active{ background: var(--accent); color:#fff; font-weight:600; }
+  .sc-navitem.is-disabled{ opacity:.4; cursor:not-allowed; }
+  .sc-navitem.is-disabled:hover{ background:transparent; }
+  .sc-navitem svg{ flex-shrink:0; }
+  .sc-navbadge{ margin-left:auto; background: var(--danger); color: #fff; font-size:10px; padding:1px 6px; border-radius:8px; }
+  .sc-sidebar-foot{ margin-top:auto; font-size:10px; color: #8AA3C2; padding: 12px 8px 2px; border-top: 1px solid rgba(255,255,255,.12); line-height:1.5; display:flex; flex-direction:column; gap:8px; }
+  .sc-filenote{ font-size:10px; color:#8AA3C2; line-height:1.5; }
+  .sc-filenote.is-ok{ color:#7FD6A8; display:flex; align-items:center; gap:5px; font-weight:600; }
+  .sc-filebtn{ display:flex; align-items:center; gap:6px; width:100%; text-align:left; background: rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.14); color:#EAF1FA; font-family:inherit; font-size:10.5px; padding:6px 8px; border-radius:6px; cursor:pointer; }
+  .sc-filebtn:hover{ background: rgba(255,255,255,.16); }
+
+  .sc-main{ flex:1; overflow:auto; padding: 30px 38px 60px; }
+  .sc-page{ max-width: 1140px; }
+  .sc-pageHead{ display:flex; align-items:flex-end; justify-content:space-between; margin-bottom:22px; padding-bottom:14px; border-bottom: 1px solid var(--line); flex-wrap:wrap; gap:10px; }
+  .sc-pageHead h1{ font-size:22px; margin:0; letter-spacing:.1px; color: var(--navy); font-weight:700; }
+  .sc-pageHead p{ margin: 5px 0 0; font-size:12.5px; color: var(--ink-faint); }
+  .sc-roomchip{ display:inline-flex; align-items:center; gap:5px; font-size:10.5px; font-weight:700; padding:3px 9px; border-radius:20px; background: var(--line-soft); color: var(--accent); margin-left:8px; letter-spacing:.2px; vertical-align:middle; }
+
+  .sc-cards{ display:grid; grid-template-columns: repeat(5, 1fr); gap:12px; margin-bottom:28px; }
+  .sc-stat{ text-align:left; background: var(--card); border:1px solid var(--line); padding:14px 16px; cursor:pointer; border-radius:10px; font-family:inherit; box-shadow: 0 1px 2px rgba(10,38,71,.04); min-width:0; }
+  .sc-stat:hover{ border-color: var(--accent); }
+  .sc-stat.is-alert{ border-color: var(--danger); background: var(--danger-bg); }
+  .sc-stat-value{ font-size:26px; line-height:1; font-weight:700; color: var(--navy); }
+  .sc-stat.is-alert .sc-stat-value{ color: var(--danger); }
+  .sc-stat-label{ font-size:11.5px; color: var(--ink-faint); margin-top:6px; }
+
+  .sc-section{ margin-bottom: 30px; }
+  .sc-sectionHead{ display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; flex-wrap:wrap; gap:8px; }
+  .sc-sectionTitle{ display:flex; align-items:center; gap:8px; font-size:14.5px; font-weight:700; color: var(--navy); }
+  .sc-sectionTitle svg{ color: var(--accent); }
+
+  .sc-table{ width:100%; border-collapse:collapse; font-size:12.5px; background: var(--card); border-radius:10px; overflow:hidden; }
+  .sc-table thead th{ text-align:left; font-weight:700; font-size:10.5px; color: var(--ink-faint); letter-spacing:.3px; text-transform:uppercase; padding: 10px 12px; border-bottom: 1px solid var(--line); background: var(--line-soft); white-space:nowrap; }
+  .sc-table tbody td{ padding: 9px 12px; border-bottom: 1px solid var(--line-soft); vertical-align:middle; }
+  .sc-table tbody tr:hover{ background: #FAFCFE; }
+  .sc-rowclick{ cursor:pointer; }
+  .sc-rowclick:hover{ background: #EAF2FA; }
+  .sc-expandcell{ width:20px; color: var(--ink-faint); }
+  .sc-rowdetail td{ background: var(--line-soft); padding:10px 12px 14px 34px; }
+  .sc-subtable{ box-shadow:none; border:1px solid var(--line); }
+  .sc-subtable thead th{ background: #fff; }
+  .sc-lotrow{ display:flex; align-items:center; gap:10px; }
+  .sc-lotrow select{ flex:1; }
+  .sc-lotrow .sc-hint{ white-space:nowrap; margin:0; }
+  .sc-table td.num, .sc-table th.num{ text-align:right; }
+  .sc-tablewrap{ overflow-x:auto; border:1px solid var(--line); border-radius:10px; }
+  .sc-tablewrap .sc-table{ border-radius:0; }
+  .mono{ font-variant-numeric: tabular-nums; }
+  .stamp-red{ color: var(--danger); font-weight:700; }
+  .stamp-blue{ color: var(--accent); font-weight:700; }
+  .rowActions{ display:flex; gap:4px; justify-content:flex-end; white-space:nowrap; }
+
+  .sc-tag{ display:inline-block; padding:2px 9px; border-radius:20px; font-size:10.5px; font-weight:600; border:1px solid transparent; white-space:nowrap; }
+  .tag-entrada{ color: var(--accent); background: #EAF2FA; }
+  .tag-saida{ color: var(--danger); background: var(--danger-bg); }
+  .tag-ajuste{ color: var(--amber); background: var(--amber-bg); }
+  .tag-neutro{ color: var(--slate); background: #EEF1F5; }
+  .tag-ambas{ color: var(--navy); background: #E7ECF3; }
+  .tag-controlados{ color: #7A3E9D; background: #F2E9F8; }
+  .tag-epis{ color: #0F7A5C; background: #E5F5EF; }
+  .tag-graficos{ color: var(--amber); background: var(--amber-bg); }
+  .tag-vencido{ color: #fff; background: var(--danger); }
+  .tag-hoje{ color: var(--danger); background: var(--danger-bg); font-weight:700; }
+  .tag-critico{ color: #B45309; background: #FEF0DC; }
+  .tag-atencao{ color: var(--amber); background: var(--amber-bg); }
+  .tag-semvalidade{ color: var(--slate); background: #EEF1F5; }
+
+  .sc-search{ display:flex; align-items:center; gap:8px; background: var(--card); border:1px solid var(--line); padding:9px 12px; border-radius:9px; }
+  .sc-search input{ border:none; background:transparent; outline:none; font-family: var(--font); font-size:12.5px; width:100%; color: var(--ink); }
+  .sc-toolbar{ display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px; align-items:center; }
+  .sc-toolbar .sc-search{ max-width:320px; flex:1; }
+  .sc-toolbar select.sc-input{ max-width:230px; }
+
+  .sc-formpanel{ background: var(--card); border:1px solid var(--line); margin-bottom:20px; border-radius:10px; box-shadow: 0 1px 3px rgba(10,38,71,.05); }
+  .sc-formpanel.is-plain{ border-color: var(--line); }
+  .sc-formpanelHead{ display:flex; justify-content:space-between; align-items:center; padding:12px 16px; border-bottom:1px solid var(--line-soft); font-weight:700; font-size:13px; color: var(--navy); }
+  .sc-formpanelBody{ padding: 16px; display:flex; flex-direction:column; gap:13px; }
+  .sc-fieldrow{ display:flex; gap:12px; flex-wrap:wrap; }
+  .sc-field{ display:flex; flex-direction:column; gap:5px; font-size:11px; color: var(--ink-faint); flex:1; min-width:150px; font-weight:600; }
+  .sc-field.is-wide{ flex: 2 1 230px; }
+  .sc-input{ font-family: var(--font); font-size:12.5px; padding:8px 10px; border:1px solid var(--line); background: #fff; color: var(--ink); border-radius:7px; width:100%; font-weight:400; }
+  .sc-input:focus{ outline:2px solid var(--accent-light); outline-offset:0; border-color: var(--accent); }
+  .sc-formfoot{ display:flex; gap:8px; justify-content:flex-end; padding: 4px 16px 16px; }
+
+  .sc-btn{ display:inline-flex; align-items:center; gap:7px; font-family: var(--font); font-size:12.5px; font-weight:600; padding:9px 15px; border-radius:8px; cursor:pointer; border:1px solid transparent; }
+  .sc-btn-primary{ background: var(--accent); color: #fff; }
+  .sc-btn-primary:hover{ background: var(--blue); }
+  .sc-btn-ghost{ background:transparent; color: var(--navy); border-color: var(--line); }
+  .sc-btn-ghost:hover{ border-color: var(--accent); color: var(--accent); }
+  .sc-iconbtn{ background:transparent; border:1px solid var(--line); padding:6px; border-radius:7px; cursor:pointer; color: var(--ink-faint); display:inline-flex; }
+  .sc-iconbtn:hover{ border-color: var(--accent); color: var(--accent); }
+
+  .sc-hint{ font-size:11.5px; color: var(--ink-faint); margin-top:-2px; }
+  .sc-hint-alert{ display:flex; align-items:center; gap:6px; color: var(--danger); margin-bottom:10px; font-weight:600; }
+  .sc-error{ display:flex; align-items:center; gap:6px; color: var(--danger); font-size:11.5px; background: var(--danger-bg); padding:8px 11px; border-radius:7px; margin-top:4px; }
+
+  .sc-empty{ padding: 30px 16px; text-align:center; color: var(--ink-faint); font-size:12.5px; background: var(--card); border:1px dashed var(--line); border-radius:10px; }
+  .sc-colabitem{ display:flex; align-items:center; justify-content:space-between; gap:8px; width:100%; text-align:left; background: var(--card); border:1px solid var(--line); padding:10px 12px; border-radius:8px; cursor:pointer; font-family:inherit; font-size:12.5px; color: var(--ink); }
+  .sc-colabitem:hover{ border-color: var(--accent); }
+  .sc-colabitem.is-active{ border-color: var(--accent); background: #EAF2FA; font-weight:700; }
+
+  @media (max-width: 860px){
+    .sc-shell{ flex-direction:column; }
+    .sc-sidebar{ width:100%; height:auto; position:relative; }
+    .sc-sidebar-foot{ display:none; }
+    .sc-cards{ grid-template-columns: repeat(2,1fr); }
+    .sc-main{ padding: 18px; }
+  }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+/* =====================================================================
+   PAINEL DE CONTROLE DE ESTOQUE — BIOSYN
+   Duas salas: Produtos Controlados e EPIs.
+   Cada registro (material, categoria, unidade, setor, tipo de
+   movimento, movimentação) carrega um "escopo" de visibilidade:
+   'ambas' | 'controlados' | 'epis'.
+   Persistência: window.storage quando disponível (dentro do Claude);
+   caso contrário, localStorage do navegador (uso independente).
+===================================================================== */
+
+const STORAGE_PREFIX = "biosyn_estoque";
+const HAS_CLAUDE_STORAGE = (typeof window.storage !== "undefined");
+
+async function storageGet(key){
+  if (HAS_CLAUDE_STORAGE){ try { return await window.storage.get(key); } catch(e){ return null; } }
+  const v = localStorage.getItem(key);
+  return v ? { key, value: v } : null;
+}
+async function storageSet(key, value){
+  if (HAS_CLAUDE_STORAGE){ try { return await window.storage.set(key, value); } catch(e){ console.error(e); return null; } }
+  localStorage.setItem(key, value);
+  return { key, value };
+}
+
+/* ------------------------------- helpers ------------------------------- */
+const uid = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2,8)}`;
+const todayISO = () => new Date().toISOString().slice(0,10);
+const round3 = (n) => Math.round(n*1000)/1000;
+const fmtDate = (iso) => { if(!iso) return "—"; const [y,m,d]=iso.split("-"); return `${d}/${m}/${y}`; };
+const fmtNum = (n) => new Intl.NumberFormat("pt-BR",{maximumFractionDigits:3}).format(n||0);
+const escapeHtml = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+/* ------------------------------- salas e escopo (visibilidade por sala) ------------------------------- */
+const ROOMS = [
+  { id:"controlados", label:"Produtos Controlados", icon:"flask" },
+  { id:"epis", label:"EPIs", icon:"shield" },
+  { id:"graficos", label:"Materiais Gráficos", icon:"printer" },
+];
+const ALL_ROOM_IDS = ROOMS.map(r=>r.id);
+function roomIcon(room){ const r = ROOMS.find(x=>x.id===room); return r ? r.icon : "globe"; }
+function roomLabel(room){
+  const r = ROOMS.find(x=>x.id===room);
+  if (r) return `Sala de ${r.label}`;
+  return "Visão Geral — Todas as Salas";
+}
+function setorHomeDaSala(roomId){
+  if (!roomId || roomId==="todas") return null;
+  return DB.setores.find(s => s.salaBase === roomId) || null;
+}
+function normalizeEscopo(escopo){
+  if (Array.isArray(escopo)) return escopo.filter(id => ALL_ROOM_IDS.includes(id));
+  if (escopo === "ambas") return [...ALL_ROOM_IDS];
+  if (typeof escopo === "string" && ALL_ROOM_IDS.includes(escopo)) return [escopo];
+  return [...ALL_ROOM_IDS];
+}
+function escopoChecklistHTML(prefix, escopo){
+  const sel = normalizeEscopo(escopo);
+  return ROOMS.map(r => `
+    <label style="display:flex; align-items:center; gap:7px; font-weight:400; font-size:12.5px; color:var(--ink); padding:4px 0;">
+      <input type="checkbox" id="${prefix}_${r.id}" ${sel.includes(r.id)?"checked":""}> ${icon(r.icon,13)} <span>${escapeHtml(r.label)}</span>
+    </label>`).join("");
+}
+function readEscopoChecklist(prefix){
+  return ROOMS.filter(r => document.getElementById(`${prefix}_${r.id}`)?.checked).map(r=>r.id);
+}
+function escopoBadgesHTML(escopo){
+  const arr = normalizeEscopo(escopo);
+  if (arr.length === ROOMS.length) return `<span class="sc-tag tag-ambas">Todas as salas</span>`;
+  if (arr.length === 0) return `<span class="sc-tag tag-ambas">Nenhuma sala</span>`;
+  return arr.map(id => `<span class="sc-tag tag-${id}">${escapeHtml(ROOMS.find(r=>r.id===id)?.label || id)}</span>`).join(" ");
+}
+function escopoLabelPlain(escopo){
+  const arr = normalizeEscopo(escopo);
+  if (arr.length === ROOMS.length) return "Todas as salas";
+  return arr.map(id => ROOMS.find(r=>r.id===id)?.label || id).join(", ");
+}
+function inRoom(item, room){
+  if (!room || room==="todas") return true;
+  return normalizeEscopo(item.escopo).includes(room);
+}
+
+/* ------------------------------- seed data ------------------------------- */
+function seedCategorias(){
+  const epis = ["Luvas","Calçados de Segurança","Máscaras e Respiradores","Óculos e Protetores Faciais","Protetores Auriculares","Capacetes","Vestimentas de Proteção","Cintos de Segurança e Talabartes","Outros EPIs"]
+    .map(nome => ({ id: uid(), nome, escopo:["epis"] }));
+  const controlados = ["Solventes","Ácidos e Bases","Produtos Químicos Diversos","Reagentes de Laboratório","Entorpecentes","Psicotrópicos","Precursores Químicos","Inflamáveis","Corrosivos","Outros Controlados"]
+    .map(nome => ({ id: uid(), nome, escopo:["controlados"] }));
+  return [...controlados, ...epis];
+}
+function seedUnidades(){ return ["g","mL","unidade","par","caixa"].map(nome => ({ id: uid(), nome, escopo:[...ALL_ROOM_IDS] })); }
+const EFEITOS = [
+  { id:"entrada", label:"Entrada (soma ao estoque)" },
+  { id:"saida", label:"Saída (subtrai do estoque)" },
+];
+function isEntregaIndividual(tipo){
+  if (!tipo) return false;
+  if (tipo.especial === "entrega_individual") return true;
+  return String(tipo.nome||"").trim().toLowerCase() === "entrega individual";
+}
+const NOMES_BAIXA_INTERNA = ["saída por utilização", "saída por descarte", "ajuste de inventário - negativo"];
+function isBaixaInterna(tipo){
+  if (!tipo) return false;
+  if (tipo.especial === "baixa_interna") return true;
+  return NOMES_BAIXA_INTERNA.includes(String(tipo.nome||"").trim().toLowerCase());
+}
+const NOMES_TRANSFERENCIA_SETOR = ["transf. semanal aos setores", "transf. aos setores"];
+function isTransferenciaSetor(tipo){
+  if (!tipo) return false;
+  if (tipo.especial === "transferencia_setor") return true;
+  return NOMES_TRANSFERENCIA_SETOR.includes(String(tipo.nome||"").trim().toLowerCase());
+}
+function seedSetores(){ return [
+  { id: uid(), nome:"Sala de Produtos Controlados", responsavelId:"", escopo:[...ALL_ROOM_IDS], salaBase:"controlados" },
+  { id: uid(), nome:"Almoxarifado de EPIs", responsavelId:"", escopo:[...ALL_ROOM_IDS], salaBase:"epis" },
+  { id: uid(), nome:"Sala de Materiais Gráficos", responsavelId:"", escopo:[...ALL_ROOM_IDS], salaBase:"graficos" },
+]; }
+function seedTipos(){ return [
+  { id: uid(), nome:"Entrada por Compra", efeito:"entrada", escopo:[...ALL_ROOM_IDS] },
+  { id: uid(), nome:"Entrada por Devolução", efeito:"entrada", escopo:[...ALL_ROOM_IDS] },
+  { id: uid(), nome:"Saída por Utilização", efeito:"saida", escopo:[...ALL_ROOM_IDS], especial:"baixa_interna" },
+  { id: uid(), nome:"Saída por Descarte", efeito:"saida", escopo:[...ALL_ROOM_IDS], especial:"baixa_interna" },
+  { id: uid(), nome:"Transf. Semanal aos Setores", efeito:"saida", escopo:[...ALL_ROOM_IDS], especial:"transferencia_setor" },
+  { id: uid(), nome:"Transf. aos Setores", efeito:"saida", escopo:[...ALL_ROOM_IDS], especial:"transferencia_setor" },
+  { id: uid(), nome:"Ajuste de Inventário - Positivo", efeito:"entrada", escopo:[...ALL_ROOM_IDS] },
+  { id: uid(), nome:"Ajuste de Inventário - Negativo", efeito:"saida", escopo:[...ALL_ROOM_IDS], especial:"baixa_interna" },
+  { id: uid(), nome:"Entrega Individual", efeito:"saida", escopo:[...ALL_ROOM_IDS], especial:"entrega_individual" },
+]; }
+
+/* ------------------------------- state ------------------------------- */
+let DB = { materiais: [], categorias: [], unidades: [], setores: [], tipos: [], movimentos: [], colaboradores: [] };
+let VIEW = "painel";
+let ROOM = "todas"; // 'todas' | 'controlados' | 'epis' | 'graficos'
+let OPEN_FORM = null; // { type, editId }
+let SELECTED_COLABORADOR_ID = null;
+let SELECTED_SETOR_RECEBIMENTO_ID = null;
+let ESTOQUE_EXPANDIDO = new Set();
+
+const mapBy = (arr) => Object.fromEntries(arr.map(x => [x.id, x]));
+
+/* ------------------------------- persistence ------------------------------- */
+async function loadAll(){
+  const keys = ["materiais","categorias","unidades","setores","tipos","movimentos","colaboradores"];
+  for (const key of keys){
+    const res = await storageGet(`${STORAGE_PREFIX}:${key}`);
+    if (res && res.value){
+      try { DB[key] = JSON.parse(res.value); } catch(e){ DB[key] = defaultFor(key); }
+    } else {
+      DB[key] = defaultFor(key);
+    }
+  }
+  // normaliza registros antigos: converte escopo (string legada ou ausente) em array de salas
+  for (const key of ["materiais","categorias","unidades","setores","tipos","movimentos","colaboradores"]){
+    DB[key] = DB[key].map(x => ({ ...x, escopo: normalizeEscopo(x.escopo) }));
+  }
+  // normaliza materiais antigos: garante o campo separado de código de barras e o CA
+  DB.materiais = DB.materiais.map(m => ({ codigoBarras: "", ca: "", caValidade: "", ...m }));
+  // normaliza setores antigos: garante o campo de setor-base da sala e de responsável (colaborador)
+  DB.setores = DB.setores.map(s => ({ salaBase: "", responsavelId: "", ...s }));
+
+  await tentarRestaurarArquivoDados();
+
+  // migração: padroniza o catálogo de unidades de medida (instalações já existentes)
+  const unidadesPadraoMarcador = await storageGet(`${STORAGE_PREFIX}:unidades_padrao_v2`);
+  if (!unidadesPadraoMarcador){
+    DB.unidades = seedUnidades();
+    persist("unidades");
+    storageSet(`${STORAGE_PREFIX}:unidades_padrao_v2`, "1");
+  }
+
+  // migração: substitui o catálogo de categorias pelo novo padrão (Controlados x EPIs)
+  const categoriasPadraoMarcador = await storageGet(`${STORAGE_PREFIX}:categorias_padrao_v3`);
+  if (!categoriasPadraoMarcador){
+    DB.categorias = seedCategorias();
+    persist("categorias");
+    storageSet(`${STORAGE_PREFIX}:categorias_padrao_v3`, "1");
+  }
+
+  // migração: renomeia o tipo de movimento antigo, preservando id e histórico
+  let tiposAlterados = false;
+  DB.tipos = DB.tipos.map(t => {
+    if (t.nome === "Saída por Dispensação/Uso" || t.nome === "Saída por Dispensação"){
+      tiposAlterados = true;
+      return { ...t, nome: "Saída por Utilização" };
+    }
+    return t;
+  });
+  if (tiposAlterados) persist("tipos");
+
+  // migração: garante a existência do tipo especial "Entrega Individual"
+  const entregaIndividualMarcador = await storageGet(`${STORAGE_PREFIX}:tipo_entrega_individual_v1`);
+  if (!entregaIndividualMarcador){
+    if (!DB.tipos.some(t => isEntregaIndividual(t))){
+      DB.tipos.push({ id: uid(), nome:"Entrega Individual", efeito:"saida", escopo:[...ALL_ROOM_IDS], especial:"entrega_individual" });
+      persist("tipos");
+    }
+    storageSet(`${STORAGE_PREFIX}:tipo_entrega_individual_v1`, "1");
+  }
+
+  // migração: todo tipo de movimento passa a ter efeito de entrada ou saída (fim de "ajuste"/"neutro")
+  const tiposEfeitosMarcador = await storageGet(`${STORAGE_PREFIX}:tipos_efeitos_v3`);
+  if (!tiposEfeitosMarcador){
+    DB.tipos = DB.tipos.map(t => {
+      if (t.nome === "Transferência entre Setores") return { ...t, nome:"Transf. Semanal aos Setores", efeito:"saida" };
+      if (t.nome === "Ajuste de Inventário") return { ...t, nome:"Ajuste de Inventário - Positivo", efeito:"entrada" };
+      if (t.efeito === "neutro" || t.efeito === "ajuste") return { ...t, efeito:"saida" };
+      return t;
+    });
+    if (!DB.tipos.some(t => t.nome==="Transf. aos Setores")){
+      DB.tipos.push({ id: uid(), nome:"Transf. aos Setores", efeito:"saida", escopo:[...ALL_ROOM_IDS] });
+    }
+    if (!DB.tipos.some(t => t.nome==="Ajuste de Inventário - Negativo")){
+      DB.tipos.push({ id: uid(), nome:"Ajuste de Inventário - Negativo", efeito:"saida", escopo:[...ALL_ROOM_IDS] });
+    }
+    persist("tipos");
+    storageSet(`${STORAGE_PREFIX}:tipos_efeitos_v3`, "1");
+  }
+
+  // migração: marca tipos de baixa interna (sem setor de destino) — usam o setor da própria sala
+  const baixaInternaMarcador = await storageGet(`${STORAGE_PREFIX}:tipos_baixa_interna_v1`);
+  if (!baixaInternaMarcador){
+    let baixaAlterada = false;
+    DB.tipos = DB.tipos.map(t => {
+      if (!t.especial && NOMES_BAIXA_INTERNA.includes(String(t.nome||"").trim().toLowerCase())){
+        baixaAlterada = true;
+        return { ...t, especial: "baixa_interna" };
+      }
+      return t;
+    });
+    if (baixaAlterada) persist("tipos");
+    storageSet(`${STORAGE_PREFIX}:tipos_baixa_interna_v1`, "1");
+  }
+
+  // migração: marca tipos de transferência aos setores (usados em "Recebimentos por Setor")
+  const transferenciaSetorMarcador = await storageGet(`${STORAGE_PREFIX}:tipos_transferencia_setor_v1`);
+  if (!transferenciaSetorMarcador){
+    let transfAlterada = false;
+    DB.tipos = DB.tipos.map(t => {
+      if (!t.especial && NOMES_TRANSFERENCIA_SETOR.includes(String(t.nome||"").trim().toLowerCase())){
+        transfAlterada = true;
+        return { ...t, especial: "transferencia_setor" };
+      }
+      return t;
+    });
+    if (transfAlterada) persist("tipos");
+    storageSet(`${STORAGE_PREFIX}:tipos_transferencia_setor_v1`, "1");
+  }
+
+  // migração: liga o "responsável" (texto livre) de cada setor a um colaborador cadastrado, quando possível
+  const responsavelColabMarcador = await storageGet(`${STORAGE_PREFIX}:setor_responsavel_colaborador_v1`);
+  if (!responsavelColabMarcador){
+    DB.setores = DB.setores.map(s => {
+      if (!s.responsavelId && s.responsavel){
+        const match = DB.colaboradores.find(c => c.nome.trim().toLowerCase() === String(s.responsavel).trim().toLowerCase());
+        if (match) return { ...s, responsavelId: match.id };
+      }
+      return s;
+    });
+    persist("setores");
+    storageSet(`${STORAGE_PREFIX}:setor_responsavel_colaborador_v1`, "1");
+  }
+
+  // migração: define o setor-base de cada sala (Controlados, EPIs, Materiais Gráficos)
+  const setoresBaseMarcador = await storageGet(`${STORAGE_PREFIX}:setores_sala_base_v1`);
+  if (!setoresBaseMarcador){
+    DB.setores = DB.setores.map(s => {
+      if (s.nome === "Sala de Produtos Controlados — Central" || s.nome === "Sala de Produtos Controlados"){
+        return { ...s, nome:"Sala de Produtos Controlados", salaBase: s.salaBase || "controlados" };
+      }
+      if (s.nome === "Almoxarifado de EPIs"){
+        return { ...s, salaBase: s.salaBase || "epis" };
+      }
+      return s;
+    });
+    if (!DB.setores.some(s => s.salaBase === "controlados")){
+      DB.setores.push({ id: uid(), nome:"Sala de Produtos Controlados", responsavel:"", escopo:[...ALL_ROOM_IDS], salaBase:"controlados" });
+    }
+    if (!DB.setores.some(s => s.salaBase === "epis")){
+      DB.setores.push({ id: uid(), nome:"Almoxarifado de EPIs", responsavel:"", escopo:[...ALL_ROOM_IDS], salaBase:"epis" });
+    }
+    if (!DB.setores.some(s => s.salaBase === "graficos")){
+      DB.setores.push({ id: uid(), nome:"Sala de Materiais Gráficos", responsavel:"", escopo:[...ALL_ROOM_IDS], salaBase:"graficos" });
+    }
+    persist("setores");
+    storageSet(`${STORAGE_PREFIX}:setores_sala_base_v1`, "1");
+  }
+
+  render();
+}
+function defaultFor(key){
+  if (key==="setores") return seedSetores();
+  if (key==="tipos") return seedTipos();
+  if (key==="categorias") return seedCategorias();
+  if (key==="unidades") return seedUnidades();
+  if (key==="colaboradores") return [];
+  return [];
+}
+function persist(key){
+  storageSet(`${STORAGE_PREFIX}:${key}`, JSON.stringify(DB[key]));
+  if (DATA_FILE_HANDLE) escreverArquivoDados();
+}
+
+/* ------------------------------- arquivo de dados local (auto-save real em arquivo) ------------------------------- */
+const HAS_FS_ACCESS = (typeof window.showSaveFilePicker === "function" && typeof window.showOpenFilePicker === "function");
+const IDB_NAME = "biosyn_estoque_fs";
+const IDB_STORE = "handles";
+let DATA_FILE_HANDLE = null;    // arquivo conectado e autorizado nesta sessão
+let PENDING_FILE_HANDLE = null; // arquivo encontrado de uma sessão anterior, aguardando reconexão
+
+function idbOpen(){
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(IDB_NAME, 1);
+    req.onupgradeneeded = () => { req.result.createObjectStore(IDB_STORE); };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function idbSet(key, value){
+  const db = await idbOpen();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, "readwrite");
+    tx.objectStore(IDB_STORE).put(value, key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+async function idbGet(key){
+  const db = await idbOpen();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, "readonly");
+    const req = tx.objectStore(IDB_STORE).get(key);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function idbDelete(key){
+  try{
+    const db = await idbOpen();
+    return new Promise((resolve) => {
+      const tx = db.transaction(IDB_STORE, "readwrite");
+      tx.objectStore(IDB_STORE).delete(key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    });
+  } catch(e){ /* nada a fazer */ }
+}
+
+async function tentarRestaurarArquivoDados(){
+  if (!HAS_FS_ACCESS) return;
+  try{
+    const handle = await idbGet("dataFile");
+    if (!handle) return;
+    const perm = await handle.queryPermission({ mode:"readwrite" });
+    if (perm === "granted") DATA_FILE_HANDLE = handle;
+    else PENDING_FILE_HANDLE = handle;
+  } catch(e){ /* handle inválido ou revogado — ignora */ }
+}
+async function reconectarArquivoDados(){
+  if (!PENDING_FILE_HANDLE) return;
+  try{
+    const perm = await PENDING_FILE_HANDLE.requestPermission({ mode:"readwrite" });
+    if (perm === "granted"){
+      DATA_FILE_HANDLE = PENDING_FILE_HANDLE;
+      PENDING_FILE_HANDLE = null;
+      await escreverArquivoDados();
+      render();
+    }
+  } catch(e){ alert("Não foi possível reconectar ao arquivo."); }
+}
+async function criarNovoArquivoDados(){
+  if (!HAS_FS_ACCESS){
+    alert("Este navegador não permite salvar automaticamente em arquivo (recurso disponível no Chrome ou Edge, no computador). Os dados continuam salvos automaticamente neste navegador.");
+    return;
+  }
+  try{
+    const handle = await window.showSaveFilePicker({
+      suggestedName: "estoque-biosyn.json",
+      types: [{ description: "Arquivo de dados do Painel de Estoque", accept: { "application/json": [".json"] } }],
+    });
+    DATA_FILE_HANDLE = handle;
+    PENDING_FILE_HANDLE = null;
+    await idbSet("dataFile", handle);
+    await escreverArquivoDados();
+    render();
+  } catch(e){ /* usuário cancelou a seleção — nada a fazer */ }
+}
+async function abrirArquivoDados(){
+  if (!HAS_FS_ACCESS){
+    alert("Este navegador não permite abrir arquivos de dados automaticamente (recurso disponível no Chrome ou Edge, no computador).");
+    return;
+  }
+  try{
+    const [handle] = await window.showOpenFilePicker({
+      types: [{ description: "Arquivo de dados do Painel de Estoque", accept: { "application/json": [".json"] } }],
+    });
+    const perm = await handle.requestPermission({ mode: "readwrite" });
+    if (perm !== "granted"){ alert("Permissão de leitura e escrita não concedida."); return; }
+    const file = await handle.getFile();
+    const data = JSON.parse(await file.text());
+    for (const key of ["materiais","categorias","unidades","setores","tipos","movimentos"]){
+      if (Array.isArray(data[key])) DB[key] = data[key].map(x => ({ escopo:"ambas", ...x }));
+    }
+    for (const key of ["materiais","categorias","unidades","setores","tipos","movimentos"]) persistLocalOnly(key);
+    DATA_FILE_HANDLE = handle;
+    PENDING_FILE_HANDLE = null;
+    await idbSet("dataFile", handle);
+    render();
+  } catch(e){ if (e && e.name !== "AbortError") alert("Não foi possível abrir o arquivo selecionado. Verifique se é um arquivo de dados válido deste painel."); }
+}
+function persistLocalOnly(key){ storageSet(`${STORAGE_PREFIX}:${key}`, JSON.stringify(DB[key])); }
+async function desconectarArquivoDados(){
+  DATA_FILE_HANDLE = null;
+  PENDING_FILE_HANDLE = null;
+  await idbDelete("dataFile");
+  render();
+}
+async function escreverArquivoDados(){
+  if (!DATA_FILE_HANDLE) return;
+  try{
+    let perm = await DATA_FILE_HANDLE.queryPermission({ mode:"readwrite" });
+    if (perm !== "granted") perm = await DATA_FILE_HANDLE.requestPermission({ mode:"readwrite" });
+    if (perm !== "granted") return;
+    const writable = await DATA_FILE_HANDLE.createWritable();
+    const payload = JSON.stringify({
+      materiais: DB.materiais, categorias: DB.categorias, unidades: DB.unidades,
+      setores: DB.setores, tipos: DB.tipos, movimentos: DB.movimentos,
+      salvoEm: new Date().toISOString(),
+    }, null, 2);
+    await writable.write(payload);
+    await writable.close();
+  } catch(e){ console.error("Falha ao salvar no arquivo conectado", e); }
+}
+
+/* ------------------------------- icons ------------------------------- */
+function icon(name, size=15){
+  const s = `width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"`;
+  const paths = {
+    layout: `<rect x="3" y="3" width="7" height="9"></rect><rect x="14" y="3" width="7" height="5"></rect><rect x="14" y="12" width="7" height="9"></rect><rect x="3" y="16" width="7" height="5"></rect>`,
+    boxes: `<path d="M3 8l6-4 6 4v8l-6 4-6-4z"></path><path d="M9 4l6 4v8"></path><path d="M15 8l6-4"></path>`,
+    building: `<rect x="4" y="3" width="16" height="18"></rect><line x1="8" y1="7" x2="8" y2="7.01"></line><line x1="12" y1="7" x2="12" y2="7.01"></line><line x1="16" y1="7" x2="16" y2="7.01"></line><line x1="8" y1="11" x2="8" y2="11.01"></line><line x1="12" y1="11" x2="12" y2="11.01"></line><line x1="16" y1="11" x2="16" y2="11.01"></line><line x1="10" y1="21" x2="10" y2="16"></line><line x1="14" y1="21" x2="14" y2="16"></line>`,
+    repeat: `<path d="M17 2l4 4-4 4"></path><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><path d="M7 22l-4-4 4-4"></path><path d="M21 13v2a4 4 0 0 1-4 4H3"></path>`,
+    swap: `<path d="M7 3v14"></path><path d="M3 7l4-4 4 4"></path><path d="M17 21V7"></path><path d="M21 17l-4 4-4-4"></path>`,
+    clipboard: `<rect x="6" y="4" width="12" height="17" rx="1"></rect><path d="M9 4V3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1"></path><line x1="9" y1="10" x2="15" y2="10"></line><line x1="9" y1="14" x2="15" y2="14"></line>`,
+    package: `<path d="M21 8l-9-5-9 5 9 5 9-5z"></path><path d="M3 8v8l9 5 9-5V8"></path><path d="M12 13v8"></path>`,
+    plus: `<line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line>`,
+    edit: `<path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"></path>`,
+    trash: `<polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>`,
+    search: `<circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>`,
+    alert: `<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line>`,
+    download: `<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line>`,
+    x: `<line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line>`,
+    check: `<polyline points="20 6 9 17 4 12"></polyline>`,
+    tag: `<path d="M20.59 13.41L11 3.83A2 2 0 0 0 9.59 3.17L4 3a1 1 0 0 0-1 1l.17 5.59a2 2 0 0 0 .66 1.41l9.58 9.58a2 2 0 0 0 2.83 0l4.35-4.35a2 2 0 0 0 0-2.83z"></path><circle cx="7.5" cy="7.5" r="1.3"></circle>`,
+    sliders: `<line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line>`,
+    flask: `<path d="M9 2h6"></path><path d="M10 2v6.5a2 2 0 0 1-.4 1.2L4.6 17.3A2 2 0 0 0 6.2 20.6h11.6a2 2 0 0 0 1.6-3.3l-5-6.6a2 2 0 0 1-.4-1.2V2"></path>`,
+    shield: `<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>`,
+    globe: `<circle cx="12" cy="12" r="9"></circle><line x1="3" y1="12" x2="21" y2="12"></line><path d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18z"></path>`,
+    camera: `<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle>`,
+    printer: `<polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect>`,
+    user: `<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle>`,
+    signature: `<path d="M3 17c2-5 4-5 6 0s4 5 6 0s4-5 6 0"></path><path d="M3 21h18"></path>`,
+    chevronRight: `<polyline points="9 18 15 12 9 6"></polyline>`,
+    chevronDown: `<polyline points="6 9 12 15 18 9"></polyline>`,
+    trend: `<polyline points="3 17 9 11 13 15 21 6"></polyline><polyline points="15 6 21 6 21 12"></polyline>`,
+  };
+  return `<svg ${s}>${paths[name]||""}</svg>`;
+}
+
+function biosynEmblemSVG(){
+  return `<svg viewBox="0 0 137 137.25" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;display:block;">
+    <defs><style>
+      .cls-2{fill:#005694;fill-rule:evenodd;}
+      .cls-3{fill:#bfb9b2;fill-rule:evenodd;}
+      .cls-4{fill:#d6cfca;fill-rule:evenodd;}
+      .cls-5{fill:#17234e;fill-rule:evenodd;}
+      .cls-6{fill:#0a457b;fill-rule:evenodd;}
+      .cls-7{fill:#0085c8;fill-rule:evenodd;}
+      .cls-8{fill:#00a1dd;fill-rule:evenodd;}
+    </style></defs>
+    <g>
+<path class="cls-4" d="M95.45,88.68l17.77,12.26c5.71-8.45,9.55-16.71,10.27-26.76l-22.13-1.93c-.5,6.08-2.61,11.69-5.91,16.42"/>
+    <path class="cls-4" d="M46.47,95.3l-22.23,26.23c3.66,3.07,7.64,5.76,11.89,8.02l16.09-30.39c-2.05-1.09-3.98-2.38-5.76-3.86"/>
+    <path class="cls-4" d="M56.46,108.89l-7.77,25.77c4.55,1.34,9.29,2.22,14.18,2.58l2.01-26.88c-2.9-.2-5.71-.7-8.41-1.48"/>
+    <path class="cls-4" d="M53.02,39.42l-14.7-31.1c-3.4,1.65-6.64,3.57-9.69,5.74l19.58,28.28c1.51-1.1,3.12-2.08,4.81-2.91"/>
+    <path class="cls-4" d="M116.69,41.67l10.19-5.96c2.45,4.26,4.45,8.82,5.93,13.6l-11.14,3.55c-1.2-3.9-2.88-7.5-4.98-11.19"/>
+    <path class="cls-3" d="M95.18,49.75l27.73-20.33c-2.86-3.93-6.14-7.54-9.76-10.78l-22.73,25.8c1.77,1.59,3.36,3.37,4.76,5.3"/>
+    <path class="cls-4" d="M75.71,101.93l8.79,33.36c3.02-.75,6.37-2.16,9.24-3.39l-12.58-31.82c-1.74.76-3.56,1.39-5.45,1.85"/>
+    <path class="cls-3" d="M39.3,51.93l-28.76-18.86c-2.55,4.03-4.7,8.35-6.37,12.9l32.18,12.15c.77-2.18,1.77-4.25,2.95-6.19"/>
+    <path class="cls-3" d="M34.68,65.07l-23.34-3.3c-.88,6.42-.66,13.02.71,19.5h-.07c.69,3.16,1.79,6.58,3.03,9.64l21.96-8.66c-1.65-3.97-2.56-8.32-2.56-12.88,0-1.46.09-2.89.27-4.3"/>
+    <path class="cls-2" d="M36.91,82.34l-21.87,8.61c-1.24-3.06-2.33-6.5-3.01-9.65l-10.58,2.32c1.55,7.32,4.28,14.21,7.98,20.46l29.74-17.26c-.86-1.42-1.61-2.91-2.26-4.46M71.1,102.9l3.76,34.29c3.1-.29,6.68-1.02,9.7-1.82l-7.8-33.5c-1.83.5-3.72.85-5.66,1.03ZM101.21,73.72l34.2,3.61c.3-2.57.45-5.18.45-7.83,0-3.57-.28-7.08-.81-10.5l-33.93,5.62c.23,1.59.35,3.22.35,4.88,0,1.43-.09,2.84-.26,4.23ZM68.97,35.96l.82-22.75c-3.53-.12-7.1.09-10.66.65l3.3,22.54c1.78-.29,3.62-.45,5.48-.45.35,0,.7,0,1.05.02Z"/>
+    <path class="cls-7" d="M58.62,37.25L49.6,4.06c-2.24.62-4.43,1.36-6.56,2.2l12.4,32.09c1.04-.42,2.1-.78,3.18-1.09M89.9,35.46l15.03-22.95c-3.9-2.54-8.08-4.69-12.48-6.39l-9.88,25.58c2.58,1.01,5.04,2.28,7.34,3.77ZM123.69,108.3l-22.21-15.72c-1.48,2.19-3.18,4.22-5.05,6.07,6.29,6.28,14.81,14.76,19.21,19.19,2.96-2.92,5.66-6.12,8.05-9.55ZM48.71,105.78l-12.95,23.58c4.06,2.19,8.38,3.97,12.88,5.3l7.79-25.77c-2.7-.78-5.28-1.83-7.72-3.11ZM27.41,30.51c-.67.7-1.32,1.42-1.95,2.14l-.05-.05c-2.1,2.45-4.15,5.39-5.84,8.22l19.41,11.92c1.25-2.15,2.71-4.13,4.36-5.91l-15.93-16.32Z"/>
+    <path class="cls-5" d="M48.27,42.29l-12.93-18.78c-3.15,2.22-6.01,4.73-8.58,7.47l16.46,15.79c1.53-1.66,3.22-3.16,5.05-4.49"/>
+    <path class="cls-5" d="M79.12,14.48l2.36-11.56c-3.59-.72-7.46-1.19-11.23-1.31l-.46,11.61c3.23.11,6.18.62,9.33,1.27"/>
+    <path class="cls-5" d="M100.38,116.21l6.48,8.95c3.12-2.19,6.05-4.64,8.76-7.31l-7.83-7.85c-2.27,2.3-4.8,4.32-7.42,6.2"/>
+    <path class="cls-5" d="M42.5,91.39l-17.01,15.19c2.03,2.32,4.23,4.45,6.57,6.38l14.47-17.6c-1.45-1.2-2.8-2.53-4.04-3.96"/>
+    <path class="cls-8" d="M75.78,29.72c-2.13-.47-4.32-.78-6.55-.9l.56-15.61c3.12.11,5.97.58,9,1.2l-3.01,15.31Z"/>
+    <path class="cls-8" d="M100.01,59.68l22.29-7.02c-1.21-3.88-2.86-7.7-4.96-11.37l-20.22,11.67c1.2,2.11,2.17,4.36,2.89,6.72"/>
+    <path class="cls-8" d="M65.41,102.96l-1.73,23.16c3.26.24,6.65.21,9.9-.1l-2.26-23.14c-1.12.11-2.25.17-3.4.17-.84,0-1.68-.03-2.51-.09"/>
+    <path class="cls-8" d="M41.77,101.15l-9.55,11.94c-5.03-4.11-9.41-9.15-12.86-15.01l13.11-7.88c2.44,4.18,5.59,7.89,9.3,10.95"/>
+    <path class="cls-8" d="M108.23,74.47l15.55,1.68c-.75,6.23-2.53,12.28-5.25,17.9l-13.97-6.84c1.88-3.94,3.14-8.23,3.66-12.74"/>
+    <path class="cls-6" d="M51.33,98.55l-11.69,19.46c5.33,3.02,17.48,7.55,23.86,7.52l1.91-22.58c-5.82.08-9.04-1.53-14.08-4.41M101.19,65.1l22.5-3.61c-.42-2.71-1.18-6.09-2.01-8.76l-21.62,6.91c.49,1.6.89,3.77,1.13,5.46ZM76.31,101.89l5.78,22.51c3.17-.81,6.63-2.12,9.61-3.46h0c2.94-1.37,5.86-3.02,8.53-4.85l-13.16-19.13c-1.74,1.21-3.59,2.26-5.55,3.12h0c-1.67.74-3.41,1.35-5.21,1.81ZM81.5,2.81l-.14-.03h0s.14.03.14.03ZM88.18,17.41l4.31-11.39c-3.53-1.37-7.2-2.45-10.99-3.22l-2.47,11.87c3.27.66,6.04,1.53,9.15,2.74ZM1.5,83.62l10.74-2.28c-1.38-6.42-1.76-12.91-.92-19.28l6.06.81c.5-3.8,1.42-7.46,2.71-10.94l-15.91-6.06c-2.71,7.33-4.18,15.25-4.18,23.52,0,4.88.52,9.64,1.5,14.23ZM109.66,98.32l5.25,3.65c-1.86,2.73-4.77,5.75-7.02,8.06l7.75,7.74c5.49-5.41,10.06-11.75,13.46-18.76l-15.53-7.43c-1.13,2.35-2.44,4.6-3.91,6.74ZM91.15,45.16l15.78-15.63c-8.02-7.83-15.94-12.68-27.85-15.07l-3.38,22.27c5.91,1.4,11.21,4.36,15.46,8.42Z"/>
+    <path class="cls-5" d="M80.08,38.21l8.23-21.14c-3.05-1.18-6.3-2.13-9.51-2.77l-4.38,22.27c1.95.38,3.84.93,5.65,1.64"/>
+    <path class="cls-8" d="M89.71,35.4l8.49-13.14c5.58,3.7,10.84,9.06,14.77,14.45l-12.59,9.23c-2.8-3.82-6.55-7.82-10.68-10.54"/>
+    </g>
+  </svg>`;
+}
+
+/* ------------------------------- leitor de código de barras ------------------------------- */
+let html5QrCode = null;
+let SCANNER_CALLBACK = null;
+
+function scannerOverlayHTML(){
+  return `
+  <div id="scannerOverlay" style="display:none; position:fixed; inset:0; background:rgba(6,26,51,.75); z-index:1000; align-items:center; justify-content:center; padding:16px;">
+    <div style="background:#fff; border-radius:12px; padding:18px; width:min(420px,94vw); box-shadow:0 12px 40px rgba(0,0,0,.35);">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <strong style="color:var(--navy); font-size:14px;">Escanear código de barras</strong>
+        <button class="sc-iconbtn" onclick="closeScanner()">${icon("x",14)}</button>
+      </div>
+      <div id="scannerRegion" style="width:100%; border-radius:8px; overflow:hidden; background:#000; min-height:220px;"></div>
+      <div class="sc-hint" style="margin-top:10px;">Aponte a câmera para o código de barras do material. É necessário permitir o acesso à câmera do dispositivo.</div>
+      <div id="scannerError"></div>
+    </div>
+  </div>`;
+}
+
+function openScanner(callback){
+  SCANNER_CALLBACK = callback;
+  const overlay = document.getElementById("scannerOverlay");
+  if (!overlay) return;
+  overlay.style.display = "flex";
+  const errBox = document.getElementById("scannerError");
+  if (errBox) errBox.innerHTML = "";
+  requestAnimationFrame(() => {
+    if (typeof Html5Qrcode === "undefined"){
+      if (errBox) errBox.innerHTML = `<div class="sc-error">${icon("alert",14)} Não foi possível carregar o leitor de código de barras. Verifique sua conexão com a internet.</div>`;
+      return;
+    }
+    try{
+      html5QrCode = new Html5Qrcode("scannerRegion", {
+        formatsToSupport: [
+          Html5QrcodeSupportedFormats.EAN_13, Html5QrcodeSupportedFormats.EAN_8,
+          Html5QrcodeSupportedFormats.CODE_128, Html5QrcodeSupportedFormats.CODE_39,
+          Html5QrcodeSupportedFormats.UPC_A, Html5QrcodeSupportedFormats.UPC_E,
+          Html5QrcodeSupportedFormats.ITF, Html5QrcodeSupportedFormats.QR_CODE,
+        ],
+      });
+      html5QrCode.start(
+        { facingMode: "environment" },
+        { fps: 10, qrbox: { width: 260, height: 160 } },
+        (decodedText) => handleScanSuccess(decodedText),
+        () => {}
+      ).catch(() => {
+        if (errBox) errBox.innerHTML = `<div class="sc-error">${icon("alert",14)} Não foi possível acessar a câmera. Verifique as permissões do navegador.</div>`;
+      });
+    } catch(e){
+      if (errBox) errBox.innerHTML = `<div class="sc-error">${icon("alert",14)} Leitor de código de barras indisponível neste navegador.</div>`;
+    }
+  });
+}
+function closeScanner(){
+  const overlay = document.getElementById("scannerOverlay");
+  if (overlay) overlay.style.display = "none";
+  if (html5QrCode){
+    html5QrCode.stop().then(() => html5QrCode.clear()).catch(() => {});
+    html5QrCode = null;
+  }
+}
+function handleScanSuccess(decodedText){
+  const cb = SCANNER_CALLBACK;
+  closeScanner();
+  if (cb) cb(decodedText);
+}
+function scanForMaterialCodigo(){
+  openScanner((text) => {
+    const el = document.getElementById("f_codigoBarras");
+    if (el) el.value = text;
+  });
+}
+function scanForMovMaterial(){
+  openScanner((text) => {
+    const el = document.getElementById("mv_codigoBusca");
+    if (el) el.value = text;
+    buscarMaterialPorCodigo();
+  });
+}
+function buscarMaterialPorCodigo(){
+  const code = (document.getElementById("mv_codigoBusca")?.value || "").trim();
+  const msgWrap = document.getElementById("mv_codigoMsg");
+  if (!msgWrap) return;
+  if (!code){ msgWrap.innerHTML = ""; return; }
+  const codeLower = code.toLowerCase();
+  const found = DB.materiais.find(m => (m.codigoBarras||"").trim().toLowerCase() === codeLower && inRoom(m, ROOM))
+    || DB.materiais.find(m => (m.codigo||"").trim().toLowerCase() === codeLower && inRoom(m, ROOM));
+  if (found){
+    const sel = document.getElementById("mv_material");
+    if (sel){ sel.value = found.id; onMovMaterialChange(); }
+    msgWrap.innerHTML = `<div class="sc-hint">${icon("check",12)} Material localizado: <strong>${escapeHtml(found.nome)}</strong></div>`;
+  } else {
+    msgWrap.innerHTML = `<div class="sc-error">${icon("alert",14)} Nenhum material cadastrado com o código "${escapeHtml(code)}"${ROOM!=="todas" ? " nesta visão" : ""}.</div>`;
+  }
+}
+
+/* ------------------------------- assinatura digital (mouse/touch) ------------------------------- */
+let SIGNATURE_CALLBACK = null;
+let sigCtx = null;
+let sigDrawing = false;
+let sigHasStroke = false;
+
+function signatureOverlayHTML(){
+  return `
+  <div id="signatureOverlay" style="display:none; position:fixed; inset:0; background:rgba(6,26,51,.75); z-index:1000; align-items:center; justify-content:center; padding:16px;">
+    <div style="background:#fff; border-radius:12px; padding:18px; width:min(480px,94vw); box-shadow:0 12px 40px rgba(0,0,0,.35);">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+        <strong style="color:var(--navy); font-size:14px;" id="signatureTitle">Assinatura do colaborador</strong>
+        <button class="sc-iconbtn" onclick="closeSignature()">${icon("x",14)}</button>
+      </div>
+      <canvas id="signatureCanvas" style="width:100%; height:200px; border:1px solid var(--line); border-radius:8px; background:#fdfdfd; touch-action:none; cursor:crosshair; display:block;"></canvas>
+      <div class="sc-hint" style="margin-top:8px;">Assine com o mouse ou o dedo (touch) na área acima.</div>
+      <div style="display:flex; justify-content:space-between; gap:8px; margin-top:12px;">
+        <button class="sc-btn sc-btn-ghost" onclick="limparAssinatura()">Limpar</button>
+        <div style="display:flex; gap:8px;">
+          <button class="sc-btn sc-btn-ghost" onclick="closeSignature()">Cancelar</button>
+          <button class="sc-btn sc-btn-primary" onclick="confirmarAssinatura()">${icon("check",14)}<span>Confirmar assinatura</span></button>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+function openSignature(title, callback){
+  SIGNATURE_CALLBACK = callback;
+  const overlay = document.getElementById("signatureOverlay");
+  if (!overlay) return;
+  const titleEl = document.getElementById("signatureTitle");
+  if (titleEl) titleEl.textContent = title;
+  overlay.style.display = "flex";
+  requestAnimationFrame(() => {
+    const canvas = document.getElementById("signatureCanvas");
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = Math.max(1, Math.round(rect.width));
+    canvas.height = Math.max(1, Math.round(rect.height));
+    sigCtx = canvas.getContext("2d");
+    sigCtx.fillStyle = "#fdfdfd";
+    sigCtx.fillRect(0, 0, canvas.width, canvas.height);
+    sigCtx.strokeStyle = "#16233A";
+    sigCtx.lineWidth = 2.2;
+    sigCtx.lineCap = "round";
+    sigCtx.lineJoin = "round";
+    sigHasStroke = false;
+    bindSignatureEvents(canvas);
+  });
+}
+function bindSignatureEvents(canvas){
+  const pos = (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const point = e.touches && e.touches[0] ? e.touches[0] : e;
+    return { x: point.clientX - rect.left, y: point.clientY - rect.top };
+  };
+  const start = (e) => { e.preventDefault(); sigDrawing = true; const p = pos(e); sigCtx.beginPath(); sigCtx.moveTo(p.x, p.y); };
+  const move = (e) => { if (!sigDrawing) return; e.preventDefault(); const p = pos(e); sigCtx.lineTo(p.x, p.y); sigCtx.stroke(); sigHasStroke = true; };
+  const end = () => { sigDrawing = false; };
+  canvas.onmousedown = start; canvas.onmousemove = move; canvas.onmouseup = end; canvas.onmouseleave = end;
+  canvas.ontouchstart = start; canvas.ontouchmove = move; canvas.ontouchend = end;
+}
+function limparAssinatura(){
+  if (!sigCtx) return;
+  const canvas = document.getElementById("signatureCanvas");
+  sigCtx.fillStyle = "#fdfdfd";
+  sigCtx.fillRect(0, 0, canvas.width, canvas.height);
+  sigHasStroke = false;
+}
+function closeSignature(){
+  const overlay = document.getElementById("signatureOverlay");
+  if (overlay) overlay.style.display = "none";
+  sigCtx = null;
+  SIGNATURE_CALLBACK = null;
+}
+function confirmarAssinatura(){
+  if (!sigHasStroke){ alert("Faça a assinatura na área indicada antes de confirmar."); return; }
+  const canvas = document.getElementById("signatureCanvas");
+  const dataUrl = canvas.toDataURL("image/png");
+  const cb = SIGNATURE_CALLBACK;
+  closeSignature();
+  if (cb) cb(dataUrl);
+}
+
+/* ------------------------------- nav / render dispatch ------------------------------- */
+const NAV = [
+  { id:"painel", label:"Painel", icon:"layout" },
+];
+const NAV_CADASTRO = [
+  { id:"materiais", label:"Materiais", icon:"boxes" },
+  { id:"categorias", label:"Categorias", icon:"tag" },
+  { id:"unidades", label:"Unidades de Medida", icon:"sliders" },
+  { id:"setores", label:"Setores", icon:"building" },
+  { id:"colaboradores", label:"Colaboradores", icon:"user" },
+  { id:"tipos", label:"Tipos de Movimento", icon:"repeat" },
+];
+const NAV_OP = [
+  { id:"movimentacoes", label:"Movimentações", icon:"swap" },
+];
+const NAV_RELATORIOS = [
+  { id:"estoques", label:"Estoques", icon:"boxes" },
+  { id:"rel_movimentacoes", label:"Movimentações", icon:"clipboard" },
+  { id:"individuais", label:"Materiais Individuais", icon:"signature" },
+  { id:"recebimentos_setor", label:"Recebimentos por Setor", icon:"building" },
+  { id:"relatorios", label:"Consumo", icon:"trend" },
+];
+
+function nav(view){
+  if (view === "movimentacoes" && ROOM === "todas") view = "painel";
+  VIEW = view; OPEN_FORM = null; render();
+}
+function setRoom(r){
+  ROOM = r;
+  OPEN_FORM = null;
+  if (r === "todas" && VIEW === "movimentacoes") VIEW = "painel";
+  render();
+}
+function closeForm(){ OPEN_FORM = null; renderMain(); }
+
+function render(){ document.getElementById("app").innerHTML = shellHTML(); }
+function renderMain(){
+  const el = document.getElementById("mainContent");
+  if (el) el.innerHTML = viewHTML();
+  else render();
+}
+
+function shellHTML(){
+  return `
+  <div class="sc-shell">
+    ${sidebarHTML()}
+    <main class="sc-main" id="mainContent">${viewHTML()}</main>
+  </div>
+  ${scannerOverlayHTML()}
+  ${signatureOverlayHTML()}`;
+}
+
+function sidebarHTML(){
+  const materiaisNaSala = DB.materiais.filter(m => inRoom(m, ROOM));
+  const alertCount = materiaisNaSala.filter(m => (m.estoqueAtual||0) <= (m.estoqueMinimo||0)).length;
+  const pendentesIndividuais = DB.movimentos.filter(m => inRoom(m, ROOM) && isEntregaIndividual(DB.tipos.find(t=>t.id===m.tipoMovimentoId)) && !m.assinatura).length;
+  const pendentesSetor = DB.movimentos.filter(m => inRoom(m, ROOM) && isTransferenciaSetor(DB.tipos.find(t=>t.id===m.tipoMovimentoId)) && !m.assinatura).length;
+  const item = (n) => {
+    const bloqueado = n.id === "movimentacoes" && ROOM === "todas";
+    return `
+    <button class="sc-navitem ${VIEW===n.id?"is-active":""} ${bloqueado?"is-disabled":""}" ${bloqueado?`disabled title="Selecione uma sala específica para lançar movimentações"`:`onclick="nav('${n.id}')"`}>
+      ${icon(n.icon,16)}<span>${n.label}</span>
+      ${n.id==="estoques" && alertCount>0 ? `<span class="sc-navbadge">${alertCount}</span>` : ""}
+      ${n.id==="individuais" && pendentesIndividuais>0 ? `<span class="sc-navbadge">${pendentesIndividuais}</span>` : ""}
+      ${n.id==="recebimentos_setor" && pendentesSetor>0 ? `<span class="sc-navbadge">${pendentesSetor}</span>` : ""}
+    </button>`;
+  };
+  const roomBtn = (id, label, iconName) => `
+    <button class="sc-roombtn ${ROOM===id?"is-active":""}" onclick="setRoom('${id}')">${icon(iconName,15)}<span>${label}</span></button>`;
+  return `
+  <nav class="sc-sidebar">
+    <div class="sc-brand">
+      <span class="sc-brand-icon">${biosynEmblemSVG()}</span>
+      <div>
+        <div class="sc-brand-title">Painel de Controle de Estoque</div>
+        <div class="sc-brand-sub">BIOSYN</div>
+      </div>
+    </div>
+
+    <button class="sc-visaogeral ${ROOM==="todas"?"is-active":""}" onclick="setRoom('todas')">${icon("globe",15)}<span>Visão Geral</span></button>
+
+    <div class="sc-roomswitch">
+      <div class="sc-roomswitch-label">Sala ativa</div>
+      ${ROOMS.map(r => roomBtn(r.id, r.label, r.icon)).join("")}
+    </div>
+
+    ${NAV.map(item).join("")}
+    <div class="sc-nav-groupLabel">Cadastros</div>
+    ${NAV_CADASTRO.map(item).join("")}
+    <div class="sc-nav-groupLabel">Operação</div>
+    ${NAV_OP.map(item).join("")}
+    <div class="sc-nav-groupLabel">Relatórios</div>
+    ${NAV_RELATORIOS.map(item).join("")}
+    <div class="sc-sidebar-foot">
+      <div>${HAS_CLAUDE_STORAGE ? "Registro mantido no armazenamento deste chat." : "Registro salvo automaticamente neste navegador."}</div>
+      ${fileStatusHTML()}
+    </div>
+  </nav>`;
+}
+function fileStatusHTML(){
+  if (!HAS_FS_ACCESS){
+    return `<div class="sc-filenote">Auto-save direto em arquivo requer Chrome ou Edge no computador. Os dados continuam salvos automaticamente neste navegador.</div>`;
+  }
+  if (DATA_FILE_HANDLE){
+    return `
+      <div class="sc-filenote is-ok">${icon("check",11)} Salvando automaticamente em arquivo</div>
+      <button class="sc-filebtn" onclick="desconectarArquivoDados()">Desconectar arquivo</button>`;
+  }
+  if (PENDING_FILE_HANDLE){
+    return `
+      <div class="sc-filenote">Arquivo de dados encontrado desta sessão anterior.</div>
+      <button class="sc-filebtn" onclick="reconectarArquivoDados()">Reconectar arquivo</button>`;
+  }
+  return `
+    <div class="sc-filenote">Nenhum arquivo de dados conectado neste dispositivo.</div>
+    <button class="sc-filebtn" onclick="criarNovoArquivoDados()">${icon("plus",11)} Criar arquivo de dados</button>
+    <button class="sc-filebtn" onclick="abrirArquivoDados()">Abrir arquivo existente</button>`;
+}
+
+function viewHTML(){
+  switch(VIEW){
+    case "painel": return painelHTML();
+    case "materiais": return materiaisHTML();
+    case "categorias": return categoriasHTML();
+    case "unidades": return unidadesHTML();
+    case "setores": return setoresHTML();
+    case "colaboradores": return colaboradoresHTML();
+    case "tipos": return tiposHTML();
+    case "movimentacoes": return movimentacoesHTML();
+    case "individuais": return materiaisIndividuaisHTML();
+    case "recebimentos_setor": return recebimentosPorSetorHTML();
+    case "estoques": return estoquesHTML();
+    case "rel_movimentacoes": return relMovimentacoesHTML();
+    case "relatorios": return relatoriosAnaliseHTML();
+    default: return "";
+  }
+}
+
+function pageHTML(title, subtitle, actions, body){
+  return `
+  <div class="sc-page">
+    <header class="sc-pageHead">
+      <div><h1>${title}</h1>${subtitle?`<p>${subtitle}</p>`:""}</div>
+      ${actions||""}
+    </header>
+    ${body}
+  </div>`;
+}
+function sectionHTML(title, iconName, actions, body){
+  return `
+  <section class="sc-section">
+    <div class="sc-sectionHead">
+      <div class="sc-sectionTitle">${iconName?icon(iconName,15):""}<span>${title}</span></div>
+      ${actions||""}
+    </div>
+    ${body}
+  </section>`;
+}
+function emptyHTML(text){ return `<div class="sc-empty">${text}</div>`; }
+function efeitoTagHTML(tipo){
+  if (!tipo) return `<span class="mono">—</span>`;
+  const cls = {entrada:"tag-entrada",saida:"tag-saida",ajuste:"tag-ajuste",neutro:"tag-neutro"}[tipo.efeito]||"";
+  return `<span class="sc-tag ${cls}">${escapeHtml(tipo.nome)}</span>`;
+}
+
+/* ================================ PAINEL ================================ */
+function painelHTML(){
+  const materiais = DB.materiais.filter(m => inRoom(m, ROOM));
+  const movimentos = DB.movimentos.filter(m => inRoom(m, ROOM));
+  const setores = DB.setores.filter(s => inRoom(s, ROOM));
+  const tipoMapGeral = mapBy(DB.tipos);
+  const abaixoMinimo = materiais.filter((m) => (m.estoqueAtual||0) <= (m.estoqueMinimo||0));
+  const hoje = todayISO();
+  const movHoje = movimentos.filter(m => m.data === hoje);
+  const ultimos = movimentos.slice(0,8);
+  const materialMap = mapBy(DB.materiais), setorMap = mapBy(DB.setores), tipoMap = mapBy(DB.tipos);
+
+  const ordemUrgencia = { vencido:0, hoje:1, critico:2, atencao:3 };
+  const alertasValidade = materiais
+    .map(m => ({ m, c: piorValidadeMaterial(m.id) }))
+    .filter(x => x.c && ordemUrgencia.hasOwnProperty(x.c.status))
+    .sort((a,b) => ordemUrgencia[a.c.status]-ordemUrgencia[b.c.status]);
+
+  const pendentesAssinatura = movimentos.filter(m => isEntregaIndividual(tipoMapGeral[m.tipoMovimentoId]) && !m.assinatura).length;
+
+  const cards = `
+  <div class="sc-cards">
+    <button class="sc-stat" onclick="nav('materiais')"><div class="sc-stat-value">${materiais.length}</div><div class="sc-stat-label">Materiais nesta visão</div></button>
+    <button class="sc-stat" onclick="nav('movimentacoes')"><div class="sc-stat-value">${movHoje.length}</div><div class="sc-stat-label">Movimentações hoje</div></button>
+    <button class="sc-stat ${abaixoMinimo.length>0?"is-alert":""}" onclick="nav('estoques')"><div class="sc-stat-value">${abaixoMinimo.length}</div><div class="sc-stat-label">Abaixo do mínimo</div></button>
+    <button class="sc-stat ${alertasValidade.length>0?"is-alert":""}" onclick="nav('estoques')"><div class="sc-stat-value">${alertasValidade.length}</div><div class="sc-stat-label">Alertas de validade</div></button>
+    <button class="sc-stat ${pendentesAssinatura>0?"is-alert":""}" onclick="nav('individuais')"><div class="sc-stat-value">${pendentesAssinatura}</div><div class="sc-stat-label">Assinaturas pendentes</div></button>
+  </div>`;
+
+  let alertEstoqueSection = "";
+  if (abaixoMinimo.length>0){
+    alertEstoqueSection = sectionHTML("Alertas de estoque baixo","alert","", `
+      <div class="sc-tablewrap"><table class="sc-table">
+        <thead><tr><th>Material</th><th>Categoria</th><th class="num">Estoque</th><th class="num">Mínimo</th></tr></thead>
+        <tbody>${abaixoMinimo.map(m=>`
+          <tr><td>${escapeHtml(m.nome)}</td><td>${escapeHtml(m.categoria)}</td>
+          <td class="num stamp-red mono">${fmtNum(m.estoqueAtual)} ${escapeHtml(m.unidade)}</td>
+          <td class="num mono">${fmtNum(m.estoqueMinimo)} ${escapeHtml(m.unidade)}</td></tr>`).join("")}
+        </tbody></table></div>`);
+  }
+
+  let alertValidadeSection = "";
+  if (alertasValidade.length>0){
+    alertValidadeSection = sectionHTML("Alertas de validade","alert","", `
+      <div class="sc-tablewrap"><table class="sc-table">
+        <thead><tr><th>Material</th><th>Categoria</th><th class="num">Estoque</th><th>Situação</th></tr></thead>
+        <tbody>${alertasValidade.map(({m,c})=>`
+          <tr><td>${escapeHtml(m.nome)}</td><td>${escapeHtml(m.categoria)}</td>
+          <td class="num mono">${fmtNum(m.estoqueAtual)} ${escapeHtml(m.unidade)}</td>
+          <td>${validadeBadgeFromClass(c)}</td></tr>`).join("")}
+        </tbody></table></div>`);
+  }
+
+  const ultimosBody = ultimos.length===0 ? emptyHTML("Nenhuma movimentação registrada ainda nesta visão. Abra “Movimentações” para lançar a primeira entrada ou saída.") : `
+    <div class="sc-tablewrap"><table class="sc-table">
+      <thead><tr><th>Data</th><th>Material</th><th>Tipo</th><th>Setor</th><th class="num">Qtd.</th></tr></thead>
+      <tbody>${ultimos.map(m=>`
+        <tr><td class="mono">${fmtDate(m.data)}</td><td>${escapeHtml(materialMap[m.materialId]?.nome||"—")}</td>
+        <td>${efeitoTagHTML(tipoMap[m.tipoMovimentoId])}</td><td>${escapeHtml(setorMap[m.setorId]?.nome||"—")}</td>
+        <td class="num mono">${fmtNum(m.quantidade)}</td></tr>`).join("")}
+      </tbody></table></div>`;
+
+  return pageHTML("Painel", `Visão geral do dia<span class="sc-roomchip">${icon(roomIcon(ROOM),11)} ${roomLabel(ROOM)}</span>`, "", `
+    ${cards}
+    ${alertEstoqueSection}
+    ${alertValidadeSection}
+    ${sectionHTML("Últimas movimentações","clipboard","", ultimosBody)}
+  `);
+}
+
+/* ============================ CADASTRO: MATERIAIS ============================ */
+function emptyMaterial(){ return { codigo:"", codigoBarras:"", ca:"", caValidade:"", nome:"", categoria:"", unidade:"", estoqueMinimo:0, estoqueAtual:0, observacao:"", escopo:"ambas" }; }
+
+function materiaisHTML(){
+  const formArea = OPEN_FORM?.type==="material" ? materialFormHTML(OPEN_FORM.editId) : "";
+  return pageHTML("Materiais","Itens sob controle, cadastrados para uma ou mais salas",
+    `<button class="sc-btn sc-btn-primary" onclick="openForm('material')">${icon("plus")}<span>Novo material</span></button>`, `
+    <div class="sc-toolbar">
+      <div class="sc-search">${icon("search")}<input id="materiaisSearch" oninput="renderMateriaisTable()" placeholder="Buscar por código, nome ou categoria…"></div>
+      ${ROOM==="todas" ? `<select class="sc-input" id="materiaisEscopoFiltro" onchange="renderMateriaisTable()" style="max-width:230px;">
+        <option value="">Todas as visibilidades</option>
+        <option value="todas">Somente "todas as salas"</option>
+        ${ROOMS.map(r=>`<option value="${r.id}">${escapeHtml(r.label)}</option>`).join("")}
+      </select>` : ""}
+    </div>
+    <div id="materialFormWrap">${formArea}</div>
+    <div class="sc-tablewrap" id="materiaisTableWrap">${materiaisTableHTML(filterMateriaisList())}</div>
+  `);
+}
+function filterMateriaisList(){
+  const q = (document.getElementById("materiaisSearch")?.value || "").toLowerCase();
+  const esc = document.getElementById("materiaisEscopoFiltro")?.value || "";
+  return DB.materiais.filter(m => {
+    if (!inRoom(m, ROOM)) return false;
+    if (esc === "todas" && normalizeEscopo(m.escopo).length !== ROOMS.length) return false;
+    if (esc && esc !== "todas" && !normalizeEscopo(m.escopo).includes(esc)) return false;
+    return `${m.codigo} ${m.codigoBarras} ${m.nome} ${m.categoria}`.toLowerCase().includes(q);
+  });
+}
+function renderMateriaisTable(){
+  const wrap = document.getElementById("materiaisTableWrap");
+  if (wrap) wrap.innerHTML = materiaisTableHTML(filterMateriaisList());
+}
+function materiaisTableHTML(list){
+  if (list.length===0) return emptyHTML("Nenhum material encontrado. Cadastre o primeiro item para começar a controlar o estoque.");
+  return `<table class="sc-table">
+    <thead><tr><th>Código</th><th>Cód. barras</th><th>Nome</th><th>Categoria</th><th class="num">Estoque</th><th class="num">Mínimo</th><th>Visibilidade</th><th></th></tr></thead>
+    <tbody>${list.map(m=>{
+      const baixo = (m.estoqueAtual||0) <= (m.estoqueMinimo||0);
+      return `<tr>
+        <td class="mono">${escapeHtml(m.codigo||"—")}</td>
+        <td class="mono">${escapeHtml(m.codigoBarras||"—")}</td>
+        <td>${escapeHtml(m.nome)}</td>
+        <td>${escapeHtml(m.categoria)}</td>
+        <td class="num mono ${baixo?"stamp-red":""}">${fmtNum(m.estoqueAtual)} ${escapeHtml(m.unidade)}</td>
+        <td class="num mono">${fmtNum(m.estoqueMinimo)}</td>
+        <td>${escopoBadgesHTML(m.escopo)}</td>
+        <td class="rowActions">
+          <button class="sc-iconbtn" title="Editar" onclick="openForm('material','${m.id}')">${icon("edit",14)}</button>
+          <button class="sc-iconbtn" title="Imprimir etiqueta com código de barras" onclick="imprimirEtiquetaMaterialCadastro('${m.id}')">${icon("download",14)}</button>
+          <button class="sc-iconbtn" title="Excluir" onclick="deleteMaterial('${m.id}')">${icon("trash",14)}</button>
+        </td></tr>`;
+    }).join("")}</tbody></table>`;
+}
+function materialFormHTML(editId){
+  const m = editId ? DB.materiais.find(x=>x.id===editId) : (() => { const e = emptyMaterial(); e.escopo = ROOM==="todas"?[...ALL_ROOM_IDS]:[ROOM]; return e; })();
+  const categoriaOptions = DB.categorias.filter(c=>inRoom(c,ROOM)).length===0?`<option value="">Cadastre uma categoria</option>`:DB.categorias.filter(c=>inRoom(c,ROOM)).map(c=>`<option value="${escapeHtml(c.nome)}" ${m?.categoria===c.nome?"selected":""}>${escapeHtml(c.nome)}</option>`).join("");
+  const unidadeOptions = DB.unidades.filter(u=>inRoom(u,ROOM)).length===0?`<option value="">Cadastre uma unidade</option>`:DB.unidades.filter(u=>inRoom(u,ROOM)).map(u=>`<option value="${escapeHtml(u.nome)}" ${m?.unidade===u.nome?"selected":""}>${escapeHtml(u.nome)}</option>`).join("");
+  return `
+  <div class="sc-formpanel">
+    <div class="sc-formpanelHead"><span>${editId?"Editar material":"Novo material"}</span>
+      <button class="sc-iconbtn" onclick="closeForm()">${icon("x",14)}</button></div>
+    <div class="sc-formpanelBody">
+      <div class="sc-fieldrow">
+        <label class="sc-field"><span>Código <span style="color:var(--danger);">*</span></span>
+          <input class="sc-input" id="f_codigo" value="${escapeHtml(m?.codigo||"")}" placeholder="Ex.: MAT-014">
+        </label>
+        <label class="sc-field"><span>Código de barras</span>
+          <div style="display:flex; gap:6px;">
+            <input class="sc-input" id="f_codigoBarras" value="${escapeHtml(m?.codigoBarras||"")}" placeholder="Ex.: 7891234567890">
+            <button type="button" class="sc-iconbtn" title="Escanear código de barras" onclick="scanForMaterialCodigo()">${icon("camera",14)}</button>
+            <button type="button" class="sc-iconbtn" title="Gerar código de barras" onclick="gerarCodigoBarrasParaMaterial()">${icon("repeat",14)}</button>
+          </div>
+        </label>
+        <label class="sc-field is-wide"><span>Nome <span style="color:var(--danger);">*</span></span><input class="sc-input" id="f_nome" value="${escapeHtml(m?.nome||"")}" placeholder="Ex.: Morfina 10mg/mL ampola"></label>
+      </div>
+      <div class="sc-fieldrow">
+        <label class="sc-field"><span>Categoria</span><select class="sc-input" id="f_categoria">${categoriaOptions}</select></label>
+        <label class="sc-field"><span>Unidade</span><select class="sc-input" id="f_unidade">${unidadeOptions}</select></label>
+        <label class="sc-field"><span>Estoque mínimo</span><input class="sc-input" type="number" min="0" step="0.001" id="f_min" value="${m?.estoqueMinimo ?? 0}"></label>
+        <label class="sc-field"><span>Nº do CA (EPI)</span><input class="sc-input" id="f_ca" value="${escapeHtml(m?.ca||"")}" placeholder="Ex.: 12345"></label>
+        <label class="sc-field"><span>Validade do CA</span><input class="sc-input" type="date" id="f_caValidade" value="${escapeHtml(m?.caValidade||"")}"></label>
+      </div>
+      ${editId ? `<div class="sc-hint">Estoque atual: <strong>${fmtNum(m?.estoqueAtual||0)} ${escapeHtml(m?.unidade||"")}</strong> — para alterar, lance uma movimentação de entrada, saída ou ajuste.</div>` : `<div class="sc-hint">O estoque inicial começa em zero. Para adicionar quantidade, lance uma movimentação de entrada depois de salvar o material.</div>`}
+      <div class="sc-fieldrow">
+        <label class="sc-field is-wide"><span>Visível em</span>
+          <div style="display:flex; flex-direction:column; gap:2px; border:1px solid var(--line); border-radius:7px; padding:8px 10px;">${escopoChecklistHTML("f_escopo", m?.escopo)}</div>
+        </label>
+      </div>
+      <label class="sc-field"><span>Observações</span><textarea class="sc-input" id="f_obs" rows="2">${escapeHtml(m?.observacao||"")}</textarea></label>
+    </div>
+    <div class="sc-formfoot">
+      <button class="sc-btn sc-btn-ghost" onclick="closeForm()">Cancelar</button>
+      <button class="sc-btn sc-btn-primary" onclick="saveMaterial(${editId?`'${editId}'`:"null"})">${icon("check",14)}<span>Salvar</span></button>
+    </div>
+  </div>`;
+}
+function openForm(type, editId){ OPEN_FORM = { type, editId: editId||null }; renderMain(); }
+function saveMaterial(editId){
+  const nome = document.getElementById("f_nome").value.trim();
+  if (!nome){ alert("Informe o nome do material."); return; }
+  const codigo = document.getElementById("f_codigo").value.trim();
+  if (!codigo){ alert("Informe o código do material."); return; }
+  const duplicadoCodigo = DB.materiais.find(m => m.codigo.trim().toLowerCase()===codigo.toLowerCase() && m.id!==editId);
+  if (duplicadoCodigo){ alert(`Já existe um material com esse código: ${duplicadoCodigo.nome}.`); return; }
+  const codigoBarras = document.getElementById("f_codigoBarras").value.trim();
+  if (codigoBarras){
+    const duplicadoBarras = DB.materiais.find(m => m.codigoBarras && m.codigoBarras===codigoBarras && m.id!==editId);
+    if (duplicadoBarras){ alert(`Já existe um material com esse código de barras: ${duplicadoBarras.nome}.`); return; }
+  }
+  const escopo = readEscopoChecklist("f_escopo");
+  if (escopo.length===0){ alert("Selecione ao menos uma sala em \"Visível em\"."); return; }
+  const data = {
+    codigo,
+    codigoBarras,
+    nome,
+    categoria: document.getElementById("f_categoria").value,
+    unidade: document.getElementById("f_unidade").value,
+    estoqueMinimo: Number(document.getElementById("f_min").value)||0,
+    ca: document.getElementById("f_ca").value.trim(),
+    caValidade: document.getElementById("f_caValidade").value || "",
+    escopo,
+    observacao: document.getElementById("f_obs").value.trim(),
+  };
+  if (editId){
+    DB.materiais = DB.materiais.map(m => m.id===editId ? { ...m, ...data } : m);
+  } else {
+    data.estoqueAtual = 0;
+    DB.materiais.push({ id: uid(), ...data });
+  }
+  persist("materiais");
+  OPEN_FORM = null;
+  render();
+}
+function deleteMaterial(id){
+  if (!confirm("Excluir este material do cadastro? O histórico de movimentações existente será mantido.")) return;
+  DB.materiais = DB.materiais.filter(m=>m.id!==id);
+  persist("materiais");
+  render();
+}
+function gerarCodigoBarrasAuto(){
+  let codigo = "";
+  for (let i=0;i<12;i++) codigo += Math.floor(Math.random()*10);
+  return codigo;
+}
+function gerarCodigoBarrasUnico(){
+  let codigo;
+  do { codigo = gerarCodigoBarrasAuto(); } while (DB.materiais.some(m=>m.codigoBarras===codigo));
+  return codigo;
+}
+function gerarCodigoBarrasParaMaterial(){
+  const el = document.getElementById("f_codigoBarras");
+  if (el) el.value = gerarCodigoBarrasUnico();
+}
+function imprimirEtiquetaMaterialCadastro(materialId){
+  const material = DB.materiais.find(m=>m.id===materialId);
+  if (!material){ alert("Material não encontrado."); return; }
+  if (!material.codigoBarras){ alert("Este material não tem código de barras cadastrado. Gere um na tela de edição antes de imprimir a etiqueta."); return; }
+
+  const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Etiqueta — ${escapeHtml(material.nome)}</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.12.3/JsBarcode.all.min.js"><\/script>
+<style>
+  * { box-sizing: border-box; }
+  body{ font-family: Arial, Helvetica, sans-serif; color:#16233A; padding:16px; margin:0; }
+  .etiqueta{ width:300px; border:1px solid #999; border-radius:6px; padding:12px; text-align:center; }
+  .et-marca{ font-size:9px; letter-spacing:.4px; color:#666; }
+  .et-nome{ font-size:14px; font-weight:bold; margin-top:4px; }
+  .et-codigo{ font-size:10px; color:#555; margin-bottom:6px; }
+  svg{ width:100%; }
+  .no-print{ margin-top:16px; text-align:center; }
+  .no-print button{ padding:9px 18px; font-size:13px; cursor:pointer; border-radius:6px; border:1px solid #173a7a; background:#173a7a; color:#fff; }
+  @media print { .no-print{ display:none; } body{ padding:0; } }
+</style></head><body>
+  <div class="etiqueta">
+    <div class="et-marca">BIOSYN</div>
+    <div class="et-nome">${escapeHtml(material.nome)}</div>
+    <div class="et-codigo">${escapeHtml(material.codigo||"")}</div>
+    <svg id="barcode"></svg>
+    <div id="barcodeErro" style="display:none; color:#b3261e; font-size:11px; margin-top:6px;"></div>
+  </div>
+  <div class="no-print"><button onclick="window.print()">Imprimir</button></div>
+  <script>
+    window.onload = function(){
+      var erroBox = document.getElementById("barcodeErro");
+      try {
+        if (typeof JsBarcode === "undefined") throw new Error("Biblioteca de código de barras não carregou. Verifique sua conexão com a internet e tente novamente.");
+        JsBarcode("#barcode", ${JSON.stringify(material.codigoBarras)}, { format:"CODE128", displayValue:true, fontSize:14, height:50, margin:6 });
+      } catch(e){
+        erroBox.style.display = "block";
+        erroBox.textContent = e && e.message ? e.message : "Não foi possível gerar o código de barras.";
+      }
+    };
+  <\/script>
+</body></html>`;
+
+  const win = window.open("", "_blank");
+  if (!win){ alert("Não foi possível abrir a etiqueta. Verifique se o bloqueador de pop-ups do navegador está ativo para este site."); return; }
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+}
+
+/* ============================ CADASTRO: CATEGORIAS ============================ */
+function categoriasHTML(){
+  const formArea = OPEN_FORM?.type==="categoria" ? categoriaFormHTML(OPEN_FORM.editId) : "";
+  const list = DB.categorias.filter(c => inRoom(c, ROOM));
+  const body = list.length===0 ? emptyHTML("Nenhuma categoria cadastrada ainda.") : `
+    <table class="sc-table"><thead><tr><th>Categoria</th><th class="num">Materiais</th><th>Visibilidade</th><th></th></tr></thead>
+    <tbody>${list.map(c=>{
+      const emUso = DB.materiais.filter(m=>m.categoria===c.nome).length;
+      return `<tr><td>${escapeHtml(c.nome)}</td><td class="num mono">${emUso}</td><td>${escopoBadgesHTML(c.escopo)}</td>
+      <td class="rowActions">
+        <button class="sc-iconbtn" title="Editar" onclick="openForm('categoria','${c.id}')">${icon("edit",14)}</button>
+        <button class="sc-iconbtn" title="Excluir" onclick="deleteCategoria('${c.id}')">${icon("trash",14)}</button>
+      </td></tr>`;
+    }).join("")}</tbody></table>`;
+  return pageHTML("Categorias","Classificação dos materiais (ex.: entorpecente, psicotrópico, proteção respiratória)",
+    `<button class="sc-btn sc-btn-primary" onclick="openForm('categoria')">${icon("plus")}<span>Nova categoria</span></button>`,
+    `${formArea}<div class="sc-tablewrap">${body}</div>`);
+}
+function categoriaFormHTML(editId){
+  const c = editId ? DB.categorias.find(x=>x.id===editId) : null;
+  const escopoPadrao = c ? c.escopo : (ROOM==="todas" ? [...ALL_ROOM_IDS] : [ROOM]);
+  return `
+  <div class="sc-formpanel">
+    <div class="sc-formpanelHead"><span>${c?"Editar categoria":"Nova categoria"}</span>
+      <button class="sc-iconbtn" onclick="closeForm()">${icon("x",14)}</button></div>
+    <div class="sc-formpanelBody">
+      <div class="sc-fieldrow">
+        <label class="sc-field is-wide"><span>Nome da categoria</span><input class="sc-input" id="f_catnome" value="${escapeHtml(c?.nome||"")}" placeholder="Ex.: Psicotrópico"></label>
+        <label class="sc-field is-wide"><span>Visível em</span>
+          <div style="display:flex; flex-direction:column; gap:2px; border:1px solid var(--line); border-radius:7px; padding:8px 10px;">${escopoChecklistHTML("f_catescopo", escopoPadrao)}</div>
+        </label>
+      </div>
+    </div>
+    <div class="sc-formfoot">
+      <button class="sc-btn sc-btn-ghost" onclick="closeForm()">Cancelar</button>
+      <button class="sc-btn sc-btn-primary" onclick="saveCategoria(${editId?`'${editId}'`:"null"})">${icon("check",14)}<span>Salvar</span></button>
+    </div>
+  </div>`;
+}
+function saveCategoria(editId){
+  const nome = document.getElementById("f_catnome").value.trim();
+  if (!nome){ alert("Informe o nome da categoria."); return; }
+  if (DB.categorias.some(c => c.nome.toLowerCase()===nome.toLowerCase() && c.id!==editId)){ alert("Já existe uma categoria com esse nome."); return; }
+  const escopo = readEscopoChecklist("f_catescopo");
+  if (escopo.length===0){ alert("Selecione ao menos uma sala em \"Visível em\"."); return; }
+  if (editId){
+    const antiga = DB.categorias.find(c=>c.id===editId);
+    if (antiga && antiga.nome !== nome){
+      DB.materiais = DB.materiais.map(m => m.categoria===antiga.nome ? {...m, categoria: nome} : m);
+      persist("materiais");
+    }
+    DB.categorias = DB.categorias.map(c => c.id===editId ? {...c, nome, escopo} : c);
+  } else {
+    DB.categorias.push({ id: uid(), nome, escopo });
+  }
+  persist("categorias");
+  OPEN_FORM = null;
+  render();
+}
+function deleteCategoria(id){
+  const c = DB.categorias.find(x=>x.id===id);
+  const emUso = DB.materiais.filter(m=>m.categoria===c?.nome).length;
+  if (emUso>0){ alert(`Não é possível excluir: ${emUso} material(is) usam esta categoria. Altere a categoria desses materiais antes de excluir.`); return; }
+  if (!confirm("Excluir esta categoria?")) return;
+  DB.categorias = DB.categorias.filter(x=>x.id!==id);
+  persist("categorias");
+  render();
+}
+
+/* ============================ CADASTRO: UNIDADES DE MEDIDA ============================ */
+function unidadesHTML(){
+  const formArea = OPEN_FORM?.type==="unidade" ? unidadeFormHTML(OPEN_FORM.editId) : "";
+  const list = DB.unidades.filter(u => inRoom(u, ROOM));
+  const body = list.length===0 ? emptyHTML("Nenhuma unidade de medida cadastrada ainda.") : `
+    <table class="sc-table"><thead><tr><th>Unidade</th><th class="num">Materiais</th><th>Visibilidade</th><th></th></tr></thead>
+    <tbody>${list.map(u=>{
+      const emUso = DB.materiais.filter(m=>m.unidade===u.nome).length;
+      return `<tr><td>${escapeHtml(u.nome)}</td><td class="num mono">${emUso}</td><td>${escopoBadgesHTML(u.escopo)}</td>
+      <td class="rowActions">
+        <button class="sc-iconbtn" title="Editar" onclick="openForm('unidade','${u.id}')">${icon("edit",14)}</button>
+        <button class="sc-iconbtn" title="Excluir" onclick="deleteUnidade('${u.id}')">${icon("trash",14)}</button>
+      </td></tr>`;
+    }).join("")}</tbody></table>`;
+  return pageHTML("Unidades de Medida","Unidades usadas para quantificar os materiais (ex.: ampola, mL, par)",
+    `<button class="sc-btn sc-btn-primary" onclick="openForm('unidade')">${icon("plus")}<span>Nova unidade</span></button>`,
+    `${formArea}<div class="sc-tablewrap">${body}</div>`);
+}
+function unidadeFormHTML(editId){
+  const u = editId ? DB.unidades.find(x=>x.id===editId) : null;
+  const escopoPadrao = u ? u.escopo : (ROOM==="todas" ? [...ALL_ROOM_IDS] : [ROOM]);
+  return `
+  <div class="sc-formpanel">
+    <div class="sc-formpanelHead"><span>${u?"Editar unidade":"Nova unidade de medida"}</span>
+      <button class="sc-iconbtn" onclick="closeForm()">${icon("x",14)}</button></div>
+    <div class="sc-formpanelBody">
+      <div class="sc-fieldrow">
+        <label class="sc-field is-wide"><span>Nome da unidade</span><input class="sc-input" id="f_unnome" value="${escapeHtml(u?.nome||"")}" placeholder="Ex.: ampola"></label>
+        <label class="sc-field is-wide"><span>Visível em</span>
+          <div style="display:flex; flex-direction:column; gap:2px; border:1px solid var(--line); border-radius:7px; padding:8px 10px;">${escopoChecklistHTML("f_unescopo", escopoPadrao)}</div>
+        </label>
+      </div>
+    </div>
+    <div class="sc-formfoot">
+      <button class="sc-btn sc-btn-ghost" onclick="closeForm()">Cancelar</button>
+      <button class="sc-btn sc-btn-primary" onclick="saveUnidade(${editId?`'${editId}'`:"null"})">${icon("check",14)}<span>Salvar</span></button>
+    </div>
+  </div>`;
+}
+function saveUnidade(editId){
+  const nome = document.getElementById("f_unnome").value.trim();
+  if (!nome){ alert("Informe o nome da unidade."); return; }
+  if (DB.unidades.some(u => u.nome.toLowerCase()===nome.toLowerCase() && u.id!==editId)){ alert("Já existe uma unidade com esse nome."); return; }
+  const escopo = readEscopoChecklist("f_unescopo");
+  if (escopo.length===0){ alert("Selecione ao menos uma sala em \"Visível em\"."); return; }
+  if (editId){
+    const antiga = DB.unidades.find(u=>u.id===editId);
+    if (antiga && antiga.nome !== nome){
+      DB.materiais = DB.materiais.map(m => m.unidade===antiga.nome ? {...m, unidade: nome} : m);
+      persist("materiais");
+    }
+    DB.unidades = DB.unidades.map(u => u.id===editId ? {...u, nome, escopo} : u);
+  } else {
+    DB.unidades.push({ id: uid(), nome, escopo });
+  }
+  persist("unidades");
+  OPEN_FORM = null;
+  render();
+}
+function deleteUnidade(id){
+  const u = DB.unidades.find(x=>x.id===id);
+  const emUso = DB.materiais.filter(m=>m.unidade===u?.nome).length;
+  if (emUso>0){ alert(`Não é possível excluir: ${emUso} material(is) usam esta unidade. Altere a unidade desses materiais antes de excluir.`); return; }
+  if (!confirm("Excluir esta unidade de medida?")) return;
+  DB.unidades = DB.unidades.filter(x=>x.id!==id);
+  persist("unidades");
+  render();
+}
+
+/* ============================ CADASTRO: SETORES ============================ */
+function setoresHTML(){
+  const formArea = OPEN_FORM?.type==="setor" ? setorFormHTML(OPEN_FORM.editId) : "";
+  const list = DB.setores.filter(s => inRoom(s, ROOM));
+  const colaboradorMap = mapBy(DB.colaboradores);
+  const body = list.length===0 ? emptyHTML("Nenhum setor cadastrado ainda.") : `
+    <table class="sc-table"><thead><tr><th>Setor</th><th>Responsável</th><th>Base da sala</th><th>Visibilidade</th><th></th></tr></thead>
+    <tbody>${list.map(s=>`
+      <tr><td>${escapeHtml(s.nome)}</td><td>${escapeHtml(colaboradorMap[s.responsavelId]?.nome||"—")}</td>
+      <td>${s.salaBase ? `<span class="sc-tag tag-${s.salaBase}">${escapeHtml(ROOMS.find(r=>r.id===s.salaBase)?.label||s.salaBase)}</span>` : "—"}</td>
+      <td>${escopoBadgesHTML(s.escopo)}</td>
+      <td class="rowActions">
+        <button class="sc-iconbtn" title="Editar" onclick="openForm('setor','${s.id}')">${icon("edit",14)}</button>
+        <button class="sc-iconbtn" title="Excluir" onclick="deleteSetor('${s.id}')">${icon("trash",14)}</button>
+      </td></tr>`).join("")}</tbody></table>`;
+  return pageHTML("Setores","Áreas que recebem ou custodiam materiais — em geral, opções gerais válidas para ambas as salas",
+    `<button class="sc-btn sc-btn-primary" onclick="openForm('setor')">${icon("plus")}<span>Novo setor</span></button>`,
+    `${formArea}<div class="sc-tablewrap">${body}</div>`);
+}
+function setorFormHTML(editId){
+  const s = editId ? DB.setores.find(x=>x.id===editId) : null;
+  const escopoPadrao = s ? s.escopo : (ROOM==="todas" ? [...ALL_ROOM_IDS] : [ROOM]);
+  const salaBaseOptions = `<option value="">Nenhuma (setor de destino comum)</option>` + ROOMS.map(r=>`<option value="${r.id}" ${s?.salaBase===r.id?"selected":""}>${escapeHtml(r.label)}</option>`).join("");
+  const responsavelOptions = `<option value="">Nenhum</option>` + DB.colaboradores.filter(c=>inRoom(c,ROOM)).map(c=>`<option value="${c.id}" ${s?.responsavelId===c.id?"selected":""}>${escapeHtml(c.nome)}</option>`).join("");
+  return `
+  <div class="sc-formpanel">
+    <div class="sc-formpanelHead"><span>${s?"Editar setor":"Novo setor"}</span>
+      <button class="sc-iconbtn" onclick="closeForm()">${icon("x",14)}</button></div>
+    <div class="sc-formpanelBody">
+      <div class="sc-fieldrow">
+        <label class="sc-field is-wide"><span>Nome do setor</span><input class="sc-input" id="f_snome" value="${escapeHtml(s?.nome||"")}" placeholder="Ex.: Centro Cirúrgico"></label>
+        <label class="sc-field is-wide"><span>Responsável (colaborador cadastrado)</span><select class="sc-input" id="f_sresp">${responsavelOptions}</select></label>
+      </div>
+      ${DB.colaboradores.length===0 ? `<div class="sc-hint">Nenhum colaborador cadastrado ainda — cadastre em "Colaboradores" para poder vinculá-lo aqui.</div>` : ""}
+      <div class="sc-fieldrow">
+        <label class="sc-field is-wide"><span>Este setor é a base (estoque) de qual sala?</span><select class="sc-input" id="f_ssalabase">${salaBaseOptions}</select></label>
+      </div>
+      <div class="sc-hint">Marque isso apenas para o setor que representa o estoque físico da sala (ex.: "Sala de Produtos Controlados"). Nas movimentações de entrada dessa sala, o setor é preenchido automaticamente com este.</div>
+      <label class="sc-field is-wide"><span>Visível em</span>
+        <div style="display:flex; flex-direction:column; gap:2px; border:1px solid var(--line); border-radius:7px; padding:8px 10px;">${escopoChecklistHTML("f_sescopo", escopoPadrao)}</div>
+      </label>
+    </div>
+    <div class="sc-formfoot">
+      <button class="sc-btn sc-btn-ghost" onclick="closeForm()">Cancelar</button>
+      <button class="sc-btn sc-btn-primary" onclick="saveSetor(${editId?`'${editId}'`:"null"})">${icon("check",14)}<span>Salvar</span></button>
+    </div>
+  </div>`;
+}
+function saveSetor(editId){
+  const nome = document.getElementById("f_snome").value.trim();
+  if (!nome){ alert("Informe o nome do setor."); return; }
+  const responsavelId = document.getElementById("f_sresp").value;
+  const salaBase = document.getElementById("f_ssalabase").value;
+  const escopo = readEscopoChecklist("f_sescopo");
+  if (escopo.length===0){ alert("Selecione ao menos uma sala em \"Visível em\"."); return; }
+  if (editId) DB.setores = DB.setores.map(s=> s.id===editId ? {...s, nome, responsavelId, salaBase, escopo} : s);
+  else DB.setores.push({ id: uid(), nome, responsavelId, salaBase, escopo });
+  persist("setores");
+  OPEN_FORM = null;
+  render();
+}
+function deleteSetor(id){
+  if (!confirm("Excluir este setor?")) return;
+  DB.setores = DB.setores.filter(s=>s.id!==id);
+  persist("setores");
+  render();
+}
+
+/* ============================ CADASTRO: COLABORADORES ============================ */
+function colaboradoresHTML(){
+  const formArea = OPEN_FORM?.type==="colaborador" ? colaboradorFormHTML(OPEN_FORM.editId) : "";
+  const setorMap = mapBy(DB.setores);
+  const list = DB.colaboradores.filter(c => inRoom(c, ROOM));
+  const body = list.length===0 ? emptyHTML("Nenhum colaborador cadastrado ainda.") : `
+    <table class="sc-table"><thead><tr><th>Nome</th><th>Setor</th><th>Visibilidade</th><th></th></tr></thead>
+    <tbody>${list.map(c=>`
+      <tr><td>${escapeHtml(c.nome)}</td><td>${escapeHtml(setorMap[c.setorId]?.nome||"—")}</td><td>${escopoBadgesHTML(c.escopo)}</td>
+      <td class="rowActions">
+        <button class="sc-iconbtn" title="Editar" onclick="openForm('colaborador','${c.id}')">${icon("edit",14)}</button>
+        <button class="sc-iconbtn" title="Excluir" onclick="deleteColaborador('${c.id}')">${icon("trash",14)}</button>
+      </td></tr>`).join("")}</tbody></table>`;
+  return pageHTML("Colaboradores","Pessoas cadastradas para uso em entregas individuais e como responsáveis de setor",
+    `<button class="sc-btn sc-btn-primary" onclick="openForm('colaborador')">${icon("plus")}<span>Novo colaborador</span></button>`,
+    `${formArea}<div class="sc-tablewrap">${body}</div>`);
+}
+function colaboradorFormHTML(editId){
+  const c = editId ? DB.colaboradores.find(x=>x.id===editId) : null;
+  const escopoPadrao = c ? c.escopo : (ROOM==="todas" ? [...ALL_ROOM_IDS] : [ROOM]);
+  const setorOptions = `<option value="">Nenhum</option>` + DB.setores.filter(s=>inRoom(s,ROOM)).map(s=>`<option value="${s.id}" ${c?.setorId===s.id?"selected":""}>${escapeHtml(s.nome)}</option>`).join("");
+  return `
+  <div class="sc-formpanel">
+    <div class="sc-formpanelHead"><span>${c?"Editar colaborador":"Novo colaborador"}</span>
+      <button class="sc-iconbtn" onclick="closeForm()">${icon("x",14)}</button></div>
+    <div class="sc-formpanelBody">
+      <div class="sc-fieldrow">
+        <label class="sc-field is-wide"><span>Nome do colaborador</span><input class="sc-input" id="f_colnome" value="${escapeHtml(c?.nome||"")}" placeholder="Nome completo"></label>
+        <label class="sc-field is-wide"><span>Setor</span><select class="sc-input" id="f_colsetor">${setorOptions}</select></label>
+      </div>
+      <label class="sc-field is-wide"><span>Visível em</span>
+        <div style="display:flex; flex-direction:column; gap:2px; border:1px solid var(--line); border-radius:7px; padding:8px 10px;">${escopoChecklistHTML("f_colescopo", escopoPadrao)}</div>
+      </label>
+    </div>
+    <div class="sc-formfoot">
+      <button class="sc-btn sc-btn-ghost" onclick="closeForm()">Cancelar</button>
+      <button class="sc-btn sc-btn-primary" onclick="saveColaborador(${editId?`'${editId}'`:"null"})">${icon("check",14)}<span>Salvar</span></button>
+    </div>
+  </div>`;
+}
+function saveColaborador(editId){
+  const nome = document.getElementById("f_colnome").value.trim();
+  if (!nome){ alert("Informe o nome do colaborador."); return; }
+  const setorId = document.getElementById("f_colsetor").value;
+  const escopo = readEscopoChecklist("f_colescopo");
+  if (escopo.length===0){ alert('Selecione ao menos uma sala em "Visível em".'); return; }
+  if (editId) DB.colaboradores = DB.colaboradores.map(c=> c.id===editId ? {...c, nome, setorId, escopo} : c);
+  else DB.colaboradores.push({ id: uid(), nome, setorId, escopo });
+  persist("colaboradores");
+  OPEN_FORM = null;
+  render();
+}
+function deleteColaborador(id){
+  const emUso = DB.movimentos.filter(m=>m.colaboradorId===id).length;
+  if (emUso>0){ alert(`Não é possível excluir: ${emUso} movimentação(ões) usam este colaborador.`); return; }
+  if (!confirm("Excluir este colaborador?")) return;
+  DB.colaboradores = DB.colaboradores.filter(c=>c.id!==id);
+  persist("colaboradores");
+  render();
+}
+
+/* ======================= CADASTRO: TIPOS DE MOVIMENTO ======================= */
+function tiposHTML(){
+  const formArea = OPEN_FORM?.type==="tipo" ? tipoFormHTML(OPEN_FORM.editId) : "";
+  const list = DB.tipos.filter(t => inRoom(t, ROOM));
+  const body = `<table class="sc-table"><thead><tr><th>Tipo</th><th>Efeito</th><th>Visibilidade</th><th></th></tr></thead>
+    <tbody>${list.map(t=>`
+      <tr><td>${escapeHtml(t.nome)}</td><td>${efeitoTagHTML(t)}</td><td>${escopoBadgesHTML(t.escopo)}</td>
+      <td class="rowActions">
+        <button class="sc-iconbtn" title="Editar" onclick="openForm('tipo','${t.id}')">${icon("edit",14)}</button>
+        <button class="sc-iconbtn" title="Excluir" onclick="deleteTipo('${t.id}')">${icon("trash",14)}</button>
+      </td></tr>`).join("")}</tbody></table>`;
+  return pageHTML("Tipos de Movimento","Como cada lançamento afeta o estoque — em geral, opções gerais válidas para ambas as salas",
+    `<button class="sc-btn sc-btn-primary" onclick="openForm('tipo')">${icon("plus")}<span>Novo tipo</span></button>`,
+    `${formArea}<div class="sc-tablewrap">${body}</div>`);
+}
+function tipoFormHTML(editId){
+  const t = editId ? DB.tipos.find(x=>x.id===editId) : null;
+  const escopoPadrao = t ? t.escopo : (ROOM==="todas" ? [...ALL_ROOM_IDS] : [ROOM]);
+  return `
+  <div class="sc-formpanel">
+    <div class="sc-formpanelHead"><span>${t?"Editar tipo":"Novo tipo de movimento"}</span>
+      <button class="sc-iconbtn" onclick="closeForm()">${icon("x",14)}</button></div>
+    <div class="sc-formpanelBody">
+      <div class="sc-fieldrow">
+        <label class="sc-field is-wide"><span>Nome</span><input class="sc-input" id="f_tnome" value="${escapeHtml(t?.nome||"")}" placeholder="Ex.: Entrada por Compra"></label>
+        <label class="sc-field"><span>Efeito no estoque</span><select class="sc-input" id="f_tefeito">${EFEITOS.map(e=>`<option value="${e.id}" ${t?.efeito===e.id?"selected":""}>${e.label}</option>`).join("")}</select></label>
+      </div>
+      <label class="sc-field is-wide"><span>Visível em</span>
+        <div style="display:flex; flex-direction:column; gap:2px; border:1px solid var(--line); border-radius:7px; padding:8px 10px;">${escopoChecklistHTML("f_tescopo", escopoPadrao)}</div>
+      </label>
+    </div>
+    <div class="sc-formfoot">
+      <button class="sc-btn sc-btn-ghost" onclick="closeForm()">Cancelar</button>
+      <button class="sc-btn sc-btn-primary" onclick="saveTipo(${editId?`'${editId}'`:"null"})">${icon("check",14)}<span>Salvar</span></button>
+    </div>
+  </div>`;
+}
+function saveTipo(editId){
+  const nome = document.getElementById("f_tnome").value.trim();
+  if (!nome){ alert("Informe o nome do tipo de movimento."); return; }
+  const efeito = document.getElementById("f_tefeito").value;
+  const escopo = readEscopoChecklist("f_tescopo");
+  if (escopo.length===0){ alert("Selecione ao menos uma sala em \"Visível em\"."); return; }
+  if (editId) DB.tipos = DB.tipos.map(t=> t.id===editId ? {...t, nome, efeito, escopo} : t);
+  else DB.tipos.push({ id: uid(), nome, efeito, escopo });
+  persist("tipos");
+  OPEN_FORM = null;
+  render();
+}
+function deleteTipo(id){
+  if (!confirm("Excluir este tipo de movimento?")) return;
+  DB.tipos = DB.tipos.filter(t=>t.id!==id);
+  persist("tipos");
+  render();
+}
+
+/* ============================== MOVIMENTAÇÕES ============================== */
+/* ------------------------------- indicadores de validade ------------------------------- */
+const LIMITE_CRITICO_DIAS = 10;
+const LIMITE_ATENCAO_DIAS = 45;
+function classificarValidade(validadeISO){
+  if (!validadeISO) return null;
+  const hoje = new Date(todayISO()+"T00:00:00");
+  const val = new Date(validadeISO+"T00:00:00");
+  const diffDias = Math.round((val - hoje) / (1000*60*60*24));
+  if (diffDias < 0) return { status:"vencido", label:`Vencido há ${Math.abs(diffDias)} dia(s)`, dias:diffDias };
+  if (diffDias === 0) return { status:"hoje", label:"Vence hoje", dias:diffDias };
+  if (diffDias <= LIMITE_CRITICO_DIAS) return { status:"critico", label:`Vence em ${diffDias} dia(s)`, dias:diffDias };
+  if (diffDias <= LIMITE_ATENCAO_DIAS) return { status:"atencao", label:`Vence em ${diffDias} dia(s)`, dias:diffDias };
+  return { status:"ok", label:`Vence em ${diffDias} dia(s)`, dias:diffDias };
+}
+function validadeBadgeFromClass(c){
+  if (!c) return `<span class="sc-tag tag-semvalidade">Sem validade</span>`;
+  const map = { vencido:"tag-vencido", hoje:"tag-hoje", critico:"tag-critico", atencao:"tag-atencao", ok:"tag-entrada" };
+  return `<span class="sc-tag ${map[c.status]}">${c.label}</span>`;
+}
+function validadeBadgeHTML(validadeISO){
+  return validadeBadgeFromClass(classificarValidade(validadeISO));
+}
+function piorValidadeMaterial(materialId){
+  const ordem = { vencido:0, hoje:1, critico:2, atencao:3, ok:4 };
+  let pior = null;
+  getLotesEmEstoque(materialId).forEach(l => {
+    if (!l.validade) return;
+    const c = classificarValidade(l.validade);
+    if (!pior || ordem[c.status] < ordem[pior.status]) pior = c;
+  });
+  return pior;
+}
+function getLotesEmEstoque(materialId){
+  if (!materialId) return [];
+  const tipoMap = mapBy(DB.tipos);
+  const porLote = {};
+  DB.movimentos
+    .filter(m => m.materialId === materialId)
+    .slice()
+    .sort((a,b) => String(a.data||"").localeCompare(String(b.data||"")))
+    .forEach(m => {
+      const key = (m.lote||"").trim();
+      const tipo = tipoMap[m.tipoMovimentoId];
+      if (!porLote[key]) porLote[key] = { lote:key, saldo:0, validade:"", documento:"" };
+      const entry = porLote[key];
+      if (tipo?.efeito === "entrada"){
+        entry.saldo = round3(entry.saldo + m.quantidade);
+        if (m.validade) entry.validade = m.validade;
+        if (m.documento) entry.documento = m.documento;
+      } else if (tipo?.efeito === "saida"){
+        entry.saldo = round3(entry.saldo - m.quantidade);
+      }
+    });
+  return Object.values(porLote).filter(l => l.saldo > 0.0001).sort((a,b)=> (a.lote||"").localeCompare(b.lote||""));
+}
+/* ------------------------------- seleção de múltiplos lotes na saída ------------------------------- */
+const MAX_LOTES_POR_LANCAMENTO = 5;
+let MV_LOTES_SELECIONADOS = [];
+let MV_CONTINUAR_DRAFT = null; // { tipoMovimentoId, setorId, colaboradorId } | null
+
+function calcularAlocacaoLotes(selecoes, lotesDisponiveis, qtdAlvo){
+  let restante = qtdAlvo;
+  const alocacoes = [];
+  for (const codigo of selecoes){
+    const lote = lotesDisponiveis.find(l=>l.lote===codigo);
+    if (!lote) continue;
+    const usado = restante <= 0 ? 0 : round3(Math.min(lote.saldo, restante));
+    alocacoes.push({ ...lote, usado });
+    restante = round3(Math.max(0, restante - usado));
+  }
+  return { alocacoes, restante };
+}
+function lotesSaidaRowsHTML(materialId){
+  const lotesDisponiveis = getLotesEmEstoque(materialId);
+  MV_LOTES_SELECIONADOS = MV_LOTES_SELECIONADOS.filter(codigo => lotesDisponiveis.some(l=>l.lote===codigo));
+
+  if (lotesDisponiveis.length === 0){
+    return `<div class="sc-hint">Nenhum lote em estoque para este material — a saída será lançada sem vínculo a um lote específico.</div>`;
+  }
+
+  const qtdAlvo = Number(document.getElementById("mv_qtd")?.value) || 0;
+  const { alocacoes, restante } = calcularAlocacaoLotes(MV_LOTES_SELECIONADOS, lotesDisponiveis, qtdAlvo);
+
+  const linhas = MV_LOTES_SELECIONADOS.map((codigo, i) => {
+    const info = alocacoes[i];
+    const jaEscolhidosAntes = MV_LOTES_SELECIONADOS.slice(0, i);
+    const opcoes = lotesDisponiveis.filter(l => l.lote===codigo || !jaEscolhidosAntes.includes(l.lote));
+    const optionsHTML = `<option value="">Selecione…</option>` + opcoes.map(l=>`<option value="${escapeHtml(l.lote)}" ${l.lote===codigo?"selected":""}>${l.lote?escapeHtml(l.lote):"(sem lote)"} — saldo ${fmtNum(l.saldo)}${l.validade?` — val. ${fmtDate(l.validade)}`:""}</option>`).join("");
+    return `<div class="sc-lotrow">
+      <select class="sc-input" onchange="onMovLoteRowChange(${i}, this.value)">${optionsHTML}</select>
+      <span class="sc-hint">${info ? `Usando ${fmtNum(info.usado)}${info.validade?` · val. ${fmtDate(info.validade)}`:""}` : ""}</span>
+    </div>`;
+  });
+
+  const restamLotes = lotesDisponiveis.some(l => !MV_LOTES_SELECIONADOS.includes(l.lote));
+  if (restante > 0 && MV_LOTES_SELECIONADOS.length < MAX_LOTES_POR_LANCAMENTO && restamLotes){
+    const opcoes = lotesDisponiveis.filter(l => !MV_LOTES_SELECIONADOS.includes(l.lote));
+    const optionsHTML = `<option value="">Selecione o próximo lote…</option>` + opcoes.map(l=>`<option value="${escapeHtml(l.lote)}">${l.lote?escapeHtml(l.lote):"(sem lote)"} — saldo ${fmtNum(l.saldo)}${l.validade?` — val. ${fmtDate(l.validade)}`:""}</option>`).join("");
+    linhas.push(`<div class="sc-lotrow">
+      <select class="sc-input" onchange="onMovLoteRowChange(${MV_LOTES_SELECIONADOS.length}, this.value)">${optionsHTML}</select>
+    </div>`);
+  }
+
+  const aviso = (restante > 0 && MV_LOTES_SELECIONADOS.length >= MAX_LOTES_POR_LANCAMENTO)
+    ? `<div class="sc-error">${icon("alert",14)} Os lotes selecionados somam ${fmtNum(round3(qtdAlvo-restante))}; faltam ${fmtNum(restante)} para completar a quantidade informada (máximo de ${MAX_LOTES_POR_LANCAMENTO} lotes por lançamento).</div>`
+    : "";
+
+  return `<div style="display:flex; flex-direction:column; gap:8px;">${linhas.join("")}</div>${aviso}`;
+}
+function onMovLoteRowChange(index, value){
+  MV_LOTES_SELECIONADOS = MV_LOTES_SELECIONADOS.slice(0, index);
+  if (value) MV_LOTES_SELECIONADOS.push(value);
+  refreshLoteFields();
+}
+function onMovQtdChange(){
+  const tipoId = document.getElementById("mv_tipo")?.value;
+  const tipo = DB.tipos.find(t=>t.id===tipoId);
+  if (tipo && tipo.efeito === "saida") refreshLoteFields();
+}
+
+function loteFieldsHTML(tipo, materialId){
+  const isSaida = tipo && tipo.efeito === "saida";
+  if (ROOM === "epis"){
+    if (isSaida){
+      return `
+        <div class="sc-field is-wide" style="flex-basis:100%;">
+          <div class="sc-hint">${icon("check",13)} Nesta sala o lote é controlado automaticamente pelo CA do material — a baixa é feita sozinha, sem selecionar lote.</div>
+        </div>
+        <label class="sc-field"><span>Documento</span><input class="sc-input" id="mv_doc"></label>`;
+    }
+    const material = DB.materiais.find(m=>m.id===materialId);
+    const temCa = !!(material && material.ca);
+    const loteInfo = material ? (temCa ? material.ca : "Sem CA") : "—";
+    return `
+      <label class="sc-field"><span>Lote (CA)</span><input class="sc-input" id="mv_lote" value="${escapeHtml(loteInfo)}" disabled></label>
+      <label class="sc-field"><span>Validade</span><input class="sc-input" type="date" id="mv_validade" value="${temCa?escapeHtml(material.caValidade||""):""}" ${temCa?"disabled":""}></label>
+      <label class="sc-field"><span>Documento</span><input class="sc-input" id="mv_doc"></label>
+      <div class="sc-hint" style="flex-basis:100%;">${!material ? "Selecione um material para ver o CA." : (temCa ? `Validade preenchida automaticamente pelo CA nº ${escapeHtml(material.ca)}.` : "Material sem CA cadastrado (\"Sem CA\") — informe a validade manualmente.")}</div>`;
+  }
+  if (!isSaida){
+    return `
+      <label class="sc-field"><span>Lote</span><input class="sc-input" id="mv_lote"></label>
+      <label class="sc-field"><span>Validade</span><input class="sc-input" type="date" id="mv_validade"></label>
+      <label class="sc-field"><span>Documento</span><input class="sc-input" id="mv_doc"></label>`;
+  }
+  return `
+    <div class="sc-field is-wide" style="flex-basis:100%;">
+      <span>Lote(s) utilizados nesta saída</span>
+      <div id="mv_lotesWrap" style="margin-top:4px;">${lotesSaidaRowsHTML(materialId)}</div>
+    </div>
+    <label class="sc-field"><span>Documento</span><input class="sc-input" id="mv_doc"></label>`;
+}
+function setorFieldHTML(tipo, preselectedSetorId){
+  const isEntrada = tipo && tipo.efeito === "entrada";
+  const isBaixa = isBaixaInterna(tipo);
+  if (isEntrada || isBaixa || !tipo){
+    const home = setorHomeDaSala(ROOM);
+    if (!home){
+      return `<label class="sc-field is-wide"><span>Setor</span>
+        <select class="sc-input" id="mv_setor" style="display:none;"></select>
+        <div class="sc-error">${icon("alert",14)} Nenhum setor configurado como base desta sala. Configure em Cadastros → Setores.</div>
+      </label>`;
+    }
+    const motivo = isBaixa
+      ? "Preenchido automaticamente — este movimento é uma baixa direta do estoque desta sala, sem setor de destino."
+      : "Preenchido automaticamente — entradas sempre ficam no estoque da sala ativa.";
+    return `<label class="sc-field is-wide"><span>Setor (estoque desta sala)</span>
+      <select class="sc-input" id="mv_setor" disabled><option value="${home.id}" selected>${escapeHtml(home.nome)}</option></select>
+      <span class="sc-hint">${motivo}</span>
+    </label>`;
+  }
+  const home = setorHomeDaSala(ROOM);
+  const setoresNaSala = DB.setores.filter(s => inRoom(s, ROOM) && (!home || s.id !== home.id));
+  const options = `<option value="">Selecione…</option>` + setoresNaSala.map(s=>`<option value="${s.id}" ${s.id===preselectedSetorId?"selected":""}>${escapeHtml(s.nome)}</option>`).join("");
+  return `<label class="sc-field is-wide"><span>Setor de destino</span>
+    <select class="sc-input" id="mv_setor" onchange="onMovSetorChange()">${options}</select>
+    <span class="sc-hint">A saída é descontada automaticamente do estoque de ${home?escapeHtml(home.nome):"desta sala"}.</span>
+  </label>`;
+}
+function movimentacoesHTML(){
+  if (ROOM === "todas"){
+    return pageHTML("Movimentações", "Selecione uma sala/almoxarifado ativo para lançar entradas e saídas.", "", `
+      <div class="sc-empty">
+        Na Visão Geral não é possível lançar movimentações — escolha uma sala ativa para continuar.
+        <div style="display:flex; gap:8px; justify-content:center; margin-top:14px; flex-wrap:wrap;">
+          ${ROOMS.map(r=>`<button class="sc-btn sc-btn-primary" onclick="irParaMovimentacoesDaSala('${r.id}')">${icon(r.icon,14)}<span>${escapeHtml(r.label)}</span></button>`).join("")}
+        </div>
+      </div>
+    `);
+  }
+  const materialMap = mapBy(DB.materiais), setorMap = mapBy(DB.setores), tipoMap = mapBy(DB.tipos);
+  const movimentosNaSala = DB.movimentos.filter(m => inRoom(m, ROOM));
+
+  const mostrarColunaVisibilidade = ROOM === "todas";
+  const historico = movimentosNaSala.length===0 ? emptyHTML("Nenhuma movimentação registrada ainda nesta visão.") : `
+    <div class="sc-tablewrap"><table class="sc-table">
+      <thead><tr><th>Nº</th><th>Data</th><th>Material</th><th>Tipo</th><th>Setor</th><th class="num">Qtd.</th><th>Lote</th>${mostrarColunaVisibilidade?"<th>Visibilidade</th>":""}<th></th></tr></thead>
+      <tbody>${movimentosNaSala.map((m)=>{
+        const cls = m.delta<0?"stamp-red":(m.delta>0?"stamp-blue":"");
+        const sign = m.delta>0?"+":(m.delta<0?"−":"±");
+        const numeroOriginal = DB.movimentos.length - DB.movimentos.findIndex(x=>x.id===m.id);
+        return `<tr>
+          <td class="mono">${String(numeroOriginal).padStart(4,"0")}</td>
+          <td class="mono">${fmtDate(m.data)}</td>
+          <td>${escapeHtml(materialMap[m.materialId]?.nome||"—")}</td>
+          <td>${efeitoTagHTML(tipoMap[m.tipoMovimentoId])}</td>
+          <td>${escapeHtml(setorMap[m.setorId]?.nome||"—")}</td>
+          <td class="num mono ${cls}">${sign}${fmtNum(Math.abs(m.quantidade))}</td>
+          <td class="mono">${escapeHtml(m.lote||"—")}</td>
+          ${mostrarColunaVisibilidade?`<td>${escopoBadgesHTML(m.escopo)}</td>`:""}
+          <td class="rowActions"><button class="sc-iconbtn" title="Excluir" onclick="deleteMovimento('${m.id}')">${icon("trash",14)}</button></td>
+        </tr>`;
+      }).join("")}</tbody></table></div>`;
+
+  const materiaisNaSala = DB.materiais.filter(m => inRoom(m, ROOM));
+  const tiposNaSala = DB.tipos.filter(t => inRoom(t, ROOM));
+  const colaboradoresNaSala = DB.colaboradores.filter(c => inRoom(c, ROOM));
+  const tipoPreSelecionado = MV_CONTINUAR_DRAFT ? DB.tipos.find(t=>t.id===MV_CONTINUAR_DRAFT.tipoMovimentoId) : null;
+
+  const codigoOptions = `<option value="">Selecione…</option>` + materiaisNaSala.filter(m=>m.codigo).map(m=>`<option value="${m.id}">${escapeHtml(m.codigo)}</option>`).join("");
+  const materialOptions = `<option value="">Selecione…</option>` + materiaisNaSala.map(m=>`<option value="${m.id}">${escapeHtml(m.nome)}</option>`).join("");
+  const tipoOptions = `<option value="">Selecione…</option>` + tiposNaSala.map(t=>`<option value="${t.id}" ${MV_CONTINUAR_DRAFT?.tipoMovimentoId===t.id?"selected":""}>${escapeHtml(t.nome)}</option>`).join("");
+  const colaboradorOptions = `<option value="">Selecione…</option>` + colaboradoresNaSala.map(c=>`<option value="${c.id}" ${MV_CONTINUAR_DRAFT?.colaboradorId===c.id?"selected":""}>${escapeHtml(c.nome)}</option>`).join("");
+
+  const form = `
+  <div class="sc-formpanel is-plain">
+    <div class="sc-formpanelBody">
+      <div class="sc-fieldrow">
+        <label class="sc-field"><span>Data</span><input class="sc-input" type="date" id="mv_data" value="${todayISO()}"></label>
+        <label class="sc-field is-wide"><span>Tipo de movimento</span><select class="sc-input" id="mv_tipo" onchange="onMovTipoChange()">${tipoOptions}</select></label>
+      </div>
+      <div class="sc-fieldrow">
+        <label class="sc-field"><span>Código</span><select class="sc-input" id="mv_codigo" onchange="onMovCodigoChange()">${codigoOptions}</select></label>
+        <label class="sc-field is-wide"><span>Material</span><select class="sc-input" id="mv_material" onchange="onMovMaterialChange()">${materialOptions}</select></label>
+        <label class="sc-field is-wide"><span>Localizar por código de barras</span>
+          <div style="display:flex; gap:6px;">
+            <input class="sc-input" id="mv_codigoBusca" placeholder="Digite ou escaneie o código" onkeydown="if(event.key==='Enter'){event.preventDefault();buscarMaterialPorCodigo();}">
+            <button type="button" class="sc-iconbtn" title="Escanear código de barras" onclick="scanForMovMaterial()">${icon("camera",14)}</button>
+            <button type="button" class="sc-btn sc-btn-ghost" onclick="buscarMaterialPorCodigo()">Buscar</button>
+          </div>
+          <div id="mv_codigoMsg"></div>
+        </label>
+      </div>
+      <div class="sc-fieldrow">
+        <label class="sc-field"><span>Quantidade</span><input class="sc-input" type="number" min="0" step="0.001" id="mv_qtd" oninput="onMovQtdChange()"></label>
+        <div class="sc-fieldrow" id="mv_setorWrap" style="flex:2 1 320px;">${setorFieldHTML(tipoPreSelecionado, MV_CONTINUAR_DRAFT?.setorId)}</div>
+        <label class="sc-field is-wide"><span>Colaborador <span id="mv_colaboradorRequired" style="color:var(--danger); display:${tipoPreSelecionado && isEntregaIndividual(tipoPreSelecionado)?"inline":"none"};">(obrigatório para Entrega Individual)</span></span><select class="sc-input" id="mv_colaborador" onchange="onMovColaboradorChange()">${colaboradorOptions}</select></label>
+      </div>
+      <div class="sc-fieldrow" id="mv_loteWrap">${loteFieldsHTML(tipoPreSelecionado, "")}</div>
+      <label class="sc-field"><span>Observações</span><textarea class="sc-input" id="mv_obs" rows="2"></textarea></label>
+      <div class="sc-hint" id="mv_estoqueHint"></div>
+      <div id="mv_errorWrap"></div>
+      <div class="sc-formfoot" style="padding:0; gap:8px;">
+        <button class="sc-btn sc-btn-primary" onclick="submitMovimento(false)">${icon("plus")}<span>Registrar movimentação</span></button>
+        <button class="sc-btn sc-btn-ghost" onclick="submitMovimento(true)">${icon("plus")}<span>Registrar movimentação e continuar</span></button>
+      </div>
+    </div>
+  </div>`;
+
+  return pageHTML("Movimentações", `Lançar entrada ou saída<span class="sc-roomchip">${icon(roomIcon(ROOM),11)} ${roomLabel(ROOM)}</span>`, "",
+    `${form}${sectionHTML("Histórico","clipboard","",historico)}`);
+}
+function irParaMovimentacoesDaSala(roomId){
+  ROOM = roomId;
+  VIEW = "movimentacoes";
+  OPEN_FORM = null;
+  render();
+}
+function refreshSetorField(){
+  const tipoId = document.getElementById("mv_tipo")?.value;
+  const tipo = DB.tipos.find(t=>t.id===tipoId);
+  const wrap = document.getElementById("mv_setorWrap");
+  if (wrap) wrap.innerHTML = setorFieldHTML(tipo);
+}
+function refreshLoteFields(){
+  const tipoId = document.getElementById("mv_tipo")?.value;
+  const materialId = document.getElementById("mv_material")?.value;
+  const tipo = DB.tipos.find(t=>t.id===tipoId);
+  const wrap = document.getElementById("mv_loteWrap");
+  if (wrap) wrap.innerHTML = loteFieldsHTML(tipo, materialId);
+}
+function onMovMaterialChange(){
+  const id = document.getElementById("mv_material").value;
+  const m = DB.materiais.find(x=>x.id===id);
+  const codSel = document.getElementById("mv_codigo");
+  if (codSel) codSel.value = (m && m.codigo) ? id : "";
+  const hint = document.getElementById("mv_estoqueHint");
+  hint.textContent = m ? `Estoque atual de ${m.nome}: ${fmtNum(m.estoqueAtual)} ${m.unidade}` : "";
+  MV_LOTES_SELECIONADOS = [];
+  refreshLoteFields();
+}
+function onMovCodigoChange(){
+  const id = document.getElementById("mv_codigo").value;
+  const matSel = document.getElementById("mv_material");
+  if (matSel) matSel.value = id;
+  onMovMaterialChange();
+}
+function onMovTipoChange(){
+  const tipoId = document.getElementById("mv_tipo").value;
+  const t = DB.tipos.find(x=>x.id===tipoId);
+  const reqEl = document.getElementById("mv_colaboradorRequired");
+  if (reqEl) reqEl.style.display = (t && isEntregaIndividual(t)) ? "inline" : "none";
+  refreshSetorField();
+  autoFillColaborador();
+  MV_LOTES_SELECIONADOS = [];
+  refreshLoteFields();
+}
+function onMovSetorChange(){
+  autoFillColaborador();
+}
+function onMovColaboradorChange(){
+  const colaboradorId = document.getElementById("mv_colaborador")?.value;
+  const colaborador = DB.colaboradores.find(c=>c.id===colaboradorId);
+  const setorSel = document.getElementById("mv_setor");
+  if (!colaborador || !colaborador.setorId || !setorSel || setorSel.disabled) return;
+  const opcaoExiste = Array.from(setorSel.options).some(o => o.value === colaborador.setorId);
+  if (opcaoExiste) setorSel.value = colaborador.setorId;
+}
+function autoFillColaborador(){
+  const tipoId = document.getElementById("mv_tipo")?.value;
+  const tipo = DB.tipos.find(t=>t.id===tipoId);
+  const colSel = document.getElementById("mv_colaborador");
+  if (!colSel || (tipo && isEntregaIndividual(tipo))) return;
+  const setorId = document.getElementById("mv_setor")?.value;
+  const setor = DB.setores.find(s=>s.id===setorId);
+  if (!setor || !setor.responsavelId) return;
+  colSel.value = setor.responsavelId;
+}
+function submitMovimento(continuar){
+  const materialId = document.getElementById("mv_material").value;
+  const tipoMovimentoId = document.getElementById("mv_tipo").value;
+  const setorId = document.getElementById("mv_setor")?.value || "";
+  const errWrap = document.getElementById("mv_errorWrap");
+  errWrap.innerHTML = "";
+  if (!materialId || !tipoMovimentoId || !setorId){
+    errWrap.innerHTML = `<div class="sc-error">${icon("alert",14)} Selecione material, tipo de movimento e setor.</div>`;
+    return;
+  }
+  const qtd = Number(document.getElementById("mv_qtd").value);
+  if (!qtd || qtd<=0){
+    errWrap.innerHTML = `<div class="sc-error">${icon("alert",14)} Informe uma quantidade maior que zero.</div>`;
+    return;
+  }
+  const tipo = DB.tipos.find(t=>t.id===tipoMovimentoId);
+  const material = DB.materiais.find(m=>m.id===materialId);
+  if (tipo?.efeito==="saida" && material && qtd > (material.estoqueAtual||0)){
+    errWrap.innerHTML = `<div class="sc-error">${icon("alert",14)} Estoque insuficiente. Disponível: ${fmtNum(material.estoqueAtual)} ${escapeHtml(material.unidade)}.</div>`;
+    return;
+  }
+
+  const colaboradorId = document.getElementById("mv_colaborador").value;
+  if (isEntregaIndividual(tipo) && !colaboradorId){
+    errWrap.innerHTML = `<div class="sc-error">${icon("alert",14)} Selecione o colaborador para a Entrega Individual.</div>`;
+    return;
+  }
+
+  const escopoMov = ROOM==="todas" ? [...ALL_ROOM_IDS] : [ROOM];
+  const dataMov = document.getElementById("mv_data").value || todayISO();
+  const documento = document.getElementById("mv_doc").value.trim();
+  const observacao = document.getElementById("mv_obs").value.trim();
+
+  const baseRegistro = {
+    data: dataMov, materialId, tipoMovimentoId, setorId, documento, observacao,
+    escopo: escopoMov, colaboradorId: colaboradorId || "",
+    assinatura: null, assinadoEm: null, criadoEm: new Date().toISOString(),
+  };
+
+  let novosRegistros = [];
+
+  if (tipo?.efeito === "saida"){
+    const lotesDisponiveis = getLotesEmEstoque(materialId);
+    if (lotesDisponiveis.length === 0){
+      // material sem lotes rastreados — mantém comportamento simples (sem vínculo a lote)
+      novosRegistros = [{ id: uid(), ...baseRegistro, quantidade: qtd, delta: -qtd, lote: "", validade: "" }];
+    } else if (ROOM === "epis"){
+      // EPIs: sem seleção manual — aloca automaticamente entre os lotes (CA) disponíveis
+      const codigosLotes = lotesDisponiveis.map(l=>l.lote);
+      const { alocacoes, restante } = calcularAlocacaoLotes(codigosLotes, lotesDisponiveis, qtd);
+      if (restante > 0.0001){
+        errWrap.innerHTML = `<div class="sc-error">${icon("alert",14)} O saldo disponível entre os CAs cadastrados não cobre a quantidade informada. Faltam ${fmtNum(restante)}.</div>`;
+        return;
+      }
+      novosRegistros = alocacoes.filter(a=>a.usado>0).map(a => ({
+        id: uid(), ...baseRegistro,
+        quantidade: a.usado, delta: -a.usado,
+        lote: a.lote, validade: a.validade || "",
+      }));
+    } else {
+      if (MV_LOTES_SELECIONADOS.length === 0){
+        errWrap.innerHTML = `<div class="sc-error">${icon("alert",14)} Selecione ao menos um lote para esta saída.</div>`;
+        return;
+      }
+      const { alocacoes, restante } = calcularAlocacaoLotes(MV_LOTES_SELECIONADOS, lotesDisponiveis, qtd);
+      if (restante > 0.0001){
+        errWrap.innerHTML = `<div class="sc-error">${icon("alert",14)} Os lotes selecionados somam ${fmtNum(round3(qtd-restante))}; faltam ${fmtNum(restante)} para completar a quantidade informada. Selecione mais lotes.</div>`;
+        return;
+      }
+      novosRegistros = alocacoes.filter(a=>a.usado>0).map(a => ({
+        id: uid(), ...baseRegistro,
+        quantidade: a.usado, delta: -a.usado,
+        lote: a.lote, validade: a.validade || "",
+      }));
+    }
+  } else if (ROOM === "epis"){
+    // EPIs: lote é o CA do material (ou "Sem CA"); validade vem do CA, exceto quando "Sem CA"
+    const temCa = !!(material && material.ca);
+    if (!temCa){
+      const validadeManual = document.getElementById("mv_validade")?.value || "";
+      if (!validadeManual){
+        errWrap.innerHTML = `<div class="sc-error">${icon("alert",14)} Este material está "Sem CA" — informe a validade manualmente.</div>`;
+        return;
+      }
+      novosRegistros = [{ id: uid(), ...baseRegistro, quantidade: qtd, delta: qtd, lote: "Sem CA", validade: validadeManual }];
+    } else {
+      novosRegistros = [{ id: uid(), ...baseRegistro, quantidade: qtd, delta: qtd, lote: material.ca, validade: material.caValidade || "" }];
+    }
+  } else {
+    // entrada: lote/validade manuais, um único lançamento
+    novosRegistros = [{
+      id: uid(), ...baseRegistro, quantidade: qtd, delta: qtd,
+      lote: document.getElementById("mv_lote")?.value.trim() || "",
+      validade: document.getElementById("mv_validade")?.value || "",
+    }];
+  }
+
+  DB.movimentos = [...novosRegistros, ...DB.movimentos];
+  const somaDelta = novosRegistros.reduce((acc,r)=>acc+r.delta, 0);
+  if (somaDelta !== 0){
+    DB.materiais = DB.materiais.map(m => m.id===materialId ? {...m, estoqueAtual: round3((m.estoqueAtual||0)+somaDelta)} : m);
+    persist("materiais");
+  }
+  persist("movimentos");
+
+  MV_LOTES_SELECIONADOS = [];
+  if (continuar){
+    MV_CONTINUAR_DRAFT = { tipoMovimentoId, setorId, colaboradorId: colaboradorId || "" };
+  } else {
+    MV_CONTINUAR_DRAFT = null;
+  }
+  render();
+}
+function deleteMovimento(id){
+  if (!confirm("Excluir esta movimentação? O estoque será recalculado.")) return;
+  const mov = DB.movimentos.find(m=>m.id===id);
+  if (mov && mov.delta){
+    DB.materiais = DB.materiais.map(m => m.id===mov.materialId ? {...m, estoqueAtual: round3((m.estoqueAtual||0)-mov.delta)} : m);
+    persist("materiais");
+  }
+  DB.movimentos = DB.movimentos.filter(m=>m.id!==id);
+  persist("movimentos");
+  render();
+}
+
+/* ============================ MATERIAIS INDIVIDUAIS (entregas + assinatura) ============================ */
+let MI_FILTRO_DE = "";
+let MI_FILTRO_ATE = "";
+function materiaisIndividuaisHTML(){
+  const materialMap = mapBy(DB.materiais), setorMap = mapBy(DB.setores), tipoMap = mapBy(DB.tipos);
+  const entregas = DB.movimentos.filter(m => inRoom(m, ROOM) && isEntregaIndividual(tipoMap[m.tipoMovimentoId]) && m.colaboradorId
+    && (!MI_FILTRO_DE || m.data >= MI_FILTRO_DE) && (!MI_FILTRO_ATE || m.data <= MI_FILTRO_ATE));
+
+  const subtitle = `Entregas individuais e assinatura de recebimento<span class="sc-roomchip">${icon(roomIcon(ROOM),11)} ${roomLabel(ROOM)}</span>`;
+  const filtroHTML = `
+    <div class="sc-fieldrow" style="margin-bottom:16px;">
+      <label class="sc-field"><span>De</span><input class="sc-input" type="date" id="mi_de" value="${MI_FILTRO_DE}" onchange="onMiFiltroChange()"></label>
+      <label class="sc-field"><span>Até</span><input class="sc-input" type="date" id="mi_ate" value="${MI_FILTRO_ATE}" onchange="onMiFiltroChange()"></label>
+    </div>`;
+
+  if (entregas.length===0){
+    return pageHTML("Materiais Individuais", subtitle, "", `${filtroHTML}
+      ${emptyHTML('Nenhuma entrega individual encontrada para os filtros selecionados. Lançamentos com o tipo de movimento "Entrega Individual" aparecerão aqui, organizados por colaborador, para coleta de assinatura.')}`);
+  }
+
+  const porColaborador = {};
+  entregas.forEach(m => { (porColaborador[m.colaboradorId] ||= []).push(m); });
+  const colaboradorIds = Object.keys(porColaborador);
+  if (!SELECTED_COLABORADOR_ID || !colaboradorIds.includes(SELECTED_COLABORADOR_ID)) SELECTED_COLABORADOR_ID = colaboradorIds[0];
+
+  const listaHTML = colaboradorIds.map(cid => {
+    const colaborador = DB.colaboradores.find(c=>c.id===cid);
+    const itens = porColaborador[cid];
+    const pendentes = itens.filter(m=>!m.assinatura).length;
+    const ativo = cid === SELECTED_COLABORADOR_ID;
+    return `<button class="sc-colabitem ${ativo?"is-active":""}" onclick="selecionarColaboradorIndividual('${cid}')">
+      <span>${escapeHtml(colaborador?.nome || "Colaborador removido")}</span>
+      ${pendentes>0 ? `<span class="sc-navbadge">${pendentes}</span>` : `<span class="sc-tag tag-entrada">Em dia</span>`}
+    </button>`;
+  }).join("");
+
+  const colaboradorAtual = DB.colaboradores.find(c=>c.id===SELECTED_COLABORADOR_ID);
+  const itensAtual = (porColaborador[SELECTED_COLABORADOR_ID] || []).slice().sort((a,b)=> String(b.data||"").localeCompare(String(a.data||"")));
+  const pendentesAtual = itensAtual.filter(m=>!m.assinatura);
+
+  const detalheTabela = itensAtual.length===0 ? emptyHTML("Nenhuma entrega para este colaborador nesta visão.") : `
+    <table class="sc-table">
+      <thead><tr><th>Material</th><th class="num">Qtd.</th><th>Setor</th><th>Data recebimento</th><th>Status</th><th>Data assinatura</th><th></th></tr></thead>
+      <tbody>${itensAtual.map(m => `
+        <tr>
+          <td>${escapeHtml(materialMap[m.materialId]?.nome||"—")}</td>
+          <td class="num mono">${fmtNum(m.quantidade)} ${escapeHtml(materialMap[m.materialId]?.unidade||"")}</td>
+          <td>${escapeHtml(setorMap[m.setorId]?.nome||"—")}</td>
+          <td class="mono">${fmtDate(m.data)}</td>
+          <td>${m.assinatura ? `<span class="sc-tag tag-entrada">Assinado</span>` : `<span class="sc-tag tag-saida">Pendente</span>`}</td>
+          <td class="mono">${m.assinadoEm ? fmtDate(m.assinadoEm.slice(0,10)) : "—"}</td>
+          <td class="rowActions">${m.assinatura ? `<img src="${m.assinatura}" alt="assinatura" style="height:24px; border:1px solid var(--line); border-radius:4px; background:#fff;">` : `<button class="sc-btn sc-btn-ghost" onclick="assinarEntrega('${m.id}')">${icon("signature",13)}<span>Assinar</span></button>`}</td>
+        </tr>`).join("")}</tbody></table>`;
+
+  const acoesSecao = `
+    ${pendentesAtual.length>0 ? `<button class="sc-btn sc-btn-primary" onclick="assinarTodasPendencias('${SELECTED_COLABORADOR_ID}')">${icon("check",14)}<span>Assinar todas as pendências (${pendentesAtual.length})</span></button>` : ""}
+    ${ROOM==="epis" ? `<button class="sc-btn sc-btn-ghost" onclick="gerarFichaEPIColaborador('${SELECTED_COLABORADOR_ID}')">${icon("download",14)}<span>Gerar Ficha de EPI</span></button>` : ""}
+  `;
+
+  return pageHTML("Materiais Individuais", subtitle, "", `
+    ${filtroHTML}
+    <div style="display:flex; gap:20px; align-items:flex-start; flex-wrap:wrap;">
+      <div style="flex:0 0 240px; display:flex; flex-direction:column; gap:6px;">${listaHTML}</div>
+      <div style="flex:1; min-width:320px;">
+        ${sectionHTML(colaboradorAtual ? `Entregas de ${escapeHtml(colaboradorAtual.nome)}` : "Entregas", "signature",
+          acoesSecao,
+          `<div class="sc-tablewrap">${detalheTabela}</div>`)}
+      </div>
+    </div>
+  `);
+}
+function onMiFiltroChange(){
+  MI_FILTRO_DE = document.getElementById("mi_de").value;
+  MI_FILTRO_ATE = document.getElementById("mi_ate").value;
+  renderMain();
+}
+function selecionarColaboradorIndividual(cid){ SELECTED_COLABORADOR_ID = cid; renderMain(); }
+function assinarEntrega(movId){
+  const mov = DB.movimentos.find(m=>m.id===movId);
+  if (!mov) return;
+  const colaborador = DB.colaboradores.find(c=>c.id===mov.colaboradorId);
+  openSignature(`Assinatura de ${colaborador?.nome || "colaborador"}`, (dataUrl) => {
+    const agora = new Date().toISOString();
+    DB.movimentos = DB.movimentos.map(m => m.id===movId ? { ...m, assinatura: dataUrl, assinadoEm: agora } : m);
+    persist("movimentos");
+    render();
+  });
+}
+function assinarTodasPendencias(colaboradorId){
+  const tipoMap = mapBy(DB.tipos);
+  const pendentes = DB.movimentos.filter(m => m.colaboradorId===colaboradorId && isEntregaIndividual(tipoMap[m.tipoMovimentoId]) && !m.assinatura);
+  if (pendentes.length===0){ alert("Não há pendências para assinar."); return; }
+  const colaborador = DB.colaboradores.find(c=>c.id===colaboradorId);
+  const pendentesIds = new Set(pendentes.map(m=>m.id));
+  openSignature(`Assinatura de ${colaborador?.nome || "colaborador"} (${pendentes.length} pendência(s))`, (dataUrl) => {
+    const agora = new Date().toISOString();
+    DB.movimentos = DB.movimentos.map(m => pendentesIds.has(m.id) ? { ...m, assinatura: dataUrl, assinadoEm: agora } : m);
+    persist("movimentos");
+    render();
+  });
+}
+
+/* ============================ RECEBIMENTOS POR SETOR ============================ */
+let RS_FILTRO_DE = "";
+let RS_FILTRO_ATE = "";
+function recebimentosPorSetorHTML(){
+  const materialMap = mapBy(DB.materiais), tipoMap = mapBy(DB.tipos), setorMap = mapBy(DB.setores), colaboradorMap = mapBy(DB.colaboradores);
+  const entregas = DB.movimentos.filter(m => inRoom(m, ROOM) && isTransferenciaSetor(tipoMap[m.tipoMovimentoId]) && m.setorId
+    && (!RS_FILTRO_DE || m.data >= RS_FILTRO_DE) && (!RS_FILTRO_ATE || m.data <= RS_FILTRO_ATE));
+
+  const subtitle = `Materiais recebidos por setor, com assinatura do responsável<span class="sc-roomchip">${icon(roomIcon(ROOM),11)} ${roomLabel(ROOM)}</span>`;
+  const filtroHTML = `
+    <div class="sc-fieldrow" style="margin-bottom:16px;">
+      <label class="sc-field"><span>De</span><input class="sc-input" type="date" id="rs_de" value="${RS_FILTRO_DE}" onchange="onRsFiltroChange()"></label>
+      <label class="sc-field"><span>Até</span><input class="sc-input" type="date" id="rs_ate" value="${RS_FILTRO_ATE}" onchange="onRsFiltroChange()"></label>
+    </div>`;
+
+  if (entregas.length===0){
+    return pageHTML("Recebimentos por Setor", subtitle, "", `${filtroHTML}
+      ${emptyHTML('Nenhuma transferência encontrada para os filtros selecionados. Lançamentos com "Transf. Semanal aos Setores" ou "Transf. aos Setores" aparecerão aqui, organizados pelo setor que recebeu o material, para coleta de assinatura.')}`);
+  }
+
+  const porSetor = {};
+  entregas.forEach(m => { (porSetor[m.setorId] ||= []).push(m); });
+  const setorIds = Object.keys(porSetor);
+  if (!SELECTED_SETOR_RECEBIMENTO_ID || !setorIds.includes(SELECTED_SETOR_RECEBIMENTO_ID)) SELECTED_SETOR_RECEBIMENTO_ID = setorIds[0];
+
+  const listaHTML = setorIds.map(sid => {
+    const setor = setorMap[sid];
+    const itens = porSetor[sid];
+    const pendentes = itens.filter(m=>!m.assinatura).length;
+    const ativo = sid === SELECTED_SETOR_RECEBIMENTO_ID;
+    return `<button class="sc-colabitem ${ativo?"is-active":""}" onclick="selecionarSetorRecebimento('${sid}')">
+      <span>${escapeHtml(setor?.nome || "Setor removido")}</span>
+      ${pendentes>0 ? `<span class="sc-navbadge">${pendentes}</span>` : `<span class="sc-tag tag-entrada">Em dia</span>`}
+    </button>`;
+  }).join("");
+
+  const setorAtual = setorMap[SELECTED_SETOR_RECEBIMENTO_ID];
+  const responsavelAtual = colaboradorMap[setorAtual?.responsavelId];
+  const itensAtual = (porSetor[SELECTED_SETOR_RECEBIMENTO_ID] || []).slice().sort((a,b)=> String(b.data||"").localeCompare(String(a.data||"")));
+  const pendentesAtual = itensAtual.filter(m=>!m.assinatura);
+
+  const avisoResponsavel = !responsavelAtual
+    ? `<div class="sc-hint sc-hint-alert">${icon("alert",14)} Este setor não tem um colaborador responsável cadastrado — configure em Cadastros → Setores para permitir a assinatura.</div>`
+    : `<div class="sc-hint">Responsável pela assinatura: <strong>${escapeHtml(responsavelAtual.nome)}</strong></div>`;
+
+  const detalheTabela = itensAtual.length===0 ? emptyHTML("Nenhum recebimento para este setor nesta visão.") : `
+    <table class="sc-table">
+      <thead><tr><th>Material</th><th class="num">Qtd.</th><th>Tipo</th><th>Data recebimento</th><th>Status</th><th>Data assinatura</th><th></th></tr></thead>
+      <tbody>${itensAtual.map(m => `
+        <tr>
+          <td>${escapeHtml(materialMap[m.materialId]?.nome||"—")}</td>
+          <td class="num mono">${fmtNum(m.quantidade)} ${escapeHtml(materialMap[m.materialId]?.unidade||"")}</td>
+          <td>${efeitoTagHTML(tipoMap[m.tipoMovimentoId])}</td>
+          <td class="mono">${fmtDate(m.data)}</td>
+          <td>${m.assinatura ? `<span class="sc-tag tag-entrada">Assinado</span>` : `<span class="sc-tag tag-saida">Pendente</span>`}</td>
+          <td class="mono">${m.assinadoEm ? fmtDate(m.assinadoEm.slice(0,10)) : "—"}</td>
+          <td class="rowActions">${m.assinatura ? `<img src="${m.assinatura}" alt="assinatura" style="height:24px; border:1px solid var(--line); border-radius:4px; background:#fff;">` : `<button class="sc-btn sc-btn-ghost" ${responsavelAtual?"":"disabled title=\\\"Cadastre o responsável do setor para assinar\\\""} onclick="assinarRecebimentoSetor('${m.id}')">${icon("signature",13)}<span>Assinar</span></button>`}</td>
+        </tr>`).join("")}</tbody></table>`;
+
+  const acoesSecaoSetor = `
+    ${(pendentesAtual.length>0 && responsavelAtual) ? `<button class="sc-btn sc-btn-primary" onclick="assinarTodasPendenciasSetor('${SELECTED_SETOR_RECEBIMENTO_ID}')">${icon("check",14)}<span>Assinar todas as pendências (${pendentesAtual.length})</span></button>` : ""}
+    ${ROOM==="epis" ? `<button class="sc-btn sc-btn-ghost" onclick="gerarFichaEPISetor('${SELECTED_SETOR_RECEBIMENTO_ID}')">${icon("download",14)}<span>Gerar Ficha de EPI</span></button>` : ""}
+  `;
+
+  return pageHTML("Recebimentos por Setor", subtitle, "", `
+    ${filtroHTML}
+    <div style="display:flex; gap:20px; align-items:flex-start; flex-wrap:wrap;">
+      <div style="flex:0 0 240px; display:flex; flex-direction:column; gap:6px;">${listaHTML}</div>
+      <div style="flex:1; min-width:320px;">
+        ${avisoResponsavel}
+        ${sectionHTML(setorAtual ? `Recebimentos de ${escapeHtml(setorAtual.nome)}` : "Recebimentos", "signature",
+          acoesSecaoSetor,
+          `<div class="sc-tablewrap">${detalheTabela}</div>`)}
+      </div>
+    </div>
+  `);
+}
+function onRsFiltroChange(){
+  RS_FILTRO_DE = document.getElementById("rs_de").value;
+  RS_FILTRO_ATE = document.getElementById("rs_ate").value;
+  renderMain();
+}
+function selecionarSetorRecebimento(sid){ SELECTED_SETOR_RECEBIMENTO_ID = sid; renderMain(); }
+function assinarRecebimentoSetor(movId){
+  const mov = DB.movimentos.find(m=>m.id===movId);
+  if (!mov) return;
+  const setor = DB.setores.find(s=>s.id===mov.setorId);
+  const responsavel = DB.colaboradores.find(c=>c.id===setor?.responsavelId);
+  if (!responsavel){ alert("Este setor não tem um colaborador responsável cadastrado. Configure em Cadastros → Setores antes de assinar."); return; }
+  openSignature(`Assinatura de ${responsavel.nome} (responsável por ${setor.nome})`, (dataUrl) => {
+    const agora = new Date().toISOString();
+    DB.movimentos = DB.movimentos.map(m => m.id===movId ? { ...m, assinatura: dataUrl, assinadoEm: agora } : m);
+    persist("movimentos");
+    render();
+  });
+}
+function assinarTodasPendenciasSetor(setorId){
+  const tipoMap = mapBy(DB.tipos);
+  const pendentes = DB.movimentos.filter(m => m.setorId===setorId && isTransferenciaSetor(tipoMap[m.tipoMovimentoId]) && !m.assinatura);
+  if (pendentes.length===0){ alert("Não há pendências para assinar."); return; }
+  const setor = DB.setores.find(s=>s.id===setorId);
+  const responsavel = DB.colaboradores.find(c=>c.id===setor?.responsavelId);
+  if (!responsavel){ alert("Este setor não tem um colaborador responsável cadastrado. Configure em Cadastros → Setores antes de assinar."); return; }
+  const pendentesIds = new Set(pendentes.map(m=>m.id));
+  openSignature(`Assinatura de ${responsavel.nome} (responsável por ${setor.nome}) — ${pendentes.length} pendência(s)`, (dataUrl) => {
+    const agora = new Date().toISOString();
+    DB.movimentos = DB.movimentos.map(m => pendentesIds.has(m.id) ? { ...m, assinatura: dataUrl, assinadoEm: agora } : m);
+    persist("movimentos");
+    render();
+  });
+}
+
+/* ------------------------------- ficha de epi (pdf via impressão do navegador) ------------------------------- */
+function periodoTexto(de, ate){
+  if (!de && !ate) return "Todos os registros";
+  return `${de?fmtDate(de):"início do histórico"} a ${ate?fmtDate(ate):"data atual"}`;
+}
+function gerarFichaEPIColaborador(colaboradorId){
+  const colaborador = DB.colaboradores.find(c=>c.id===colaboradorId);
+  if (!colaborador){ alert("Colaborador não encontrado."); return; }
+  const setor = DB.setores.find(s=>s.id===colaborador.setorId);
+  const tipoMap = mapBy(DB.tipos), materialMap = mapBy(DB.materiais);
+  const itens = DB.movimentos.filter(m => m.colaboradorId===colaboradorId && isEntregaIndividual(tipoMap[m.tipoMovimentoId])
+      && (!MI_FILTRO_DE || m.data >= MI_FILTRO_DE) && (!MI_FILTRO_ATE || m.data <= MI_FILTRO_ATE))
+    .slice().sort((a,b)=> String(a.data||"").localeCompare(String(b.data||"")));
+  abrirFichaEPI({
+    linha1: `Colaborador: ${colaborador.nome}`,
+    linha2: `Setor: ${setor ? setor.nome : "—"}`,
+    periodo: periodoTexto(MI_FILTRO_DE, MI_FILTRO_ATE),
+    itens: itens.map(m => ({
+      data: fmtDate(m.data),
+      descricao: materialMap[m.materialId]?.nome || "—",
+      ca: materialMap[m.materialId]?.ca || "—",
+      quantidade: `${fmtNum(m.quantidade)} ${materialMap[m.materialId]?.unidade||""}`,
+      assinado: !!m.assinatura,
+      dataAssinatura: m.assinadoEm ? fmtDate(m.assinadoEm.slice(0,10)) : "",
+      assinaturaImg: m.assinatura || "",
+    })),
+  });
+}
+function gerarFichaEPISetor(setorId){
+  const setor = DB.setores.find(s=>s.id===setorId);
+  if (!setor){ alert("Setor não encontrado."); return; }
+  const responsavel = DB.colaboradores.find(c=>c.id===setor.responsavelId);
+  const tipoMap = mapBy(DB.tipos), materialMap = mapBy(DB.materiais);
+  const itens = DB.movimentos.filter(m => m.setorId===setorId && isTransferenciaSetor(tipoMap[m.tipoMovimentoId])
+      && (!RS_FILTRO_DE || m.data >= RS_FILTRO_DE) && (!RS_FILTRO_ATE || m.data <= RS_FILTRO_ATE))
+    .slice().sort((a,b)=> String(a.data||"").localeCompare(String(b.data||"")));
+  abrirFichaEPI({
+    linha1: `Setor: ${setor.nome}`,
+    linha2: `Responsável: ${responsavel ? responsavel.nome : "—"}`,
+    periodo: periodoTexto(RS_FILTRO_DE, RS_FILTRO_ATE),
+    itens: itens.map(m => ({
+      data: fmtDate(m.data),
+      descricao: materialMap[m.materialId]?.nome || "—",
+      ca: materialMap[m.materialId]?.ca || "—",
+      quantidade: `${fmtNum(m.quantidade)} ${materialMap[m.materialId]?.unidade||""}`,
+      assinado: !!m.assinatura,
+      dataAssinatura: m.assinadoEm ? fmtDate(m.assinadoEm.slice(0,10)) : "",
+      assinaturaImg: m.assinatura || "",
+    })),
+  });
+}
+function abrirFichaEPI(dados){
+  const linhasTabela = dados.itens.map((it, i) => `
+    <tr>
+      <td>${i+1}</td>
+      <td>${escapeHtml(it.data)}</td>
+      <td>${escapeHtml(it.descricao)}</td>
+      <td>${escapeHtml(it.ca)}</td>
+      <td>${escapeHtml(it.quantidade)}</td>
+      <td>${it.assinado ? `<img src="${it.assinaturaImg}" style="height:26px;">` : "Pendente"}</td>
+      <td>${it.dataAssinatura ? escapeHtml(it.dataAssinatura) : "—"}</td>
+    </tr>`).join("");
+
+  const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Ficha de EPI</title>
+<style>
+  body{ font-family: Arial, Helvetica, sans-serif; color:#16233A; padding:32px; max-width:900px; margin:0 auto; }
+  h1{ font-size:16px; text-align:center; margin:0 0 4px; letter-spacing:.3px; }
+  .sub{ text-align:center; font-size:11px; color:#555; margin-bottom:22px; }
+  .info{ font-size:12.5px; margin-bottom:4px; }
+  table{ width:100%; border-collapse:collapse; margin-top:16px; font-size:11.5px; }
+  th, td{ border:1px solid #999; padding:6px 8px; text-align:left; vertical-align:middle; }
+  th{ background:#eef1f5; }
+  .decl{ margin-top:26px; font-size:11px; line-height:1.5; }
+  .linha{ border-top:1px solid #333; width:280px; margin-top:44px; padding-top:4px; font-size:11px; }
+  .footnote{ margin-top:30px; font-size:9.5px; color:#777; line-height:1.4; }
+  .no-print{ margin-top:26px; text-align:center; }
+  .no-print button{ padding:9px 18px; font-size:13px; cursor:pointer; border-radius:6px; border:1px solid #173a7a; background:#173a7a; color:#fff; }
+  @media print { .no-print{ display:none; } body{ padding:0; } }
+</style></head><body>
+  <h1>FICHA DE CONTROLE DE ENTREGA DE EQUIPAMENTO DE PROTEÇÃO INDIVIDUAL (EPI)</h1>
+  <div class="sub">Referência: NR-6 — Norma Regulamentadora nº 6 (Ministério do Trabalho e Emprego)</div>
+  <div class="info"><strong>${escapeHtml(dados.linha1)}</strong></div>
+  <div class="info">${escapeHtml(dados.linha2)}</div>
+  <div class="info">Período: ${escapeHtml(dados.periodo)}</div>
+  <table>
+    <thead><tr><th>#</th><th>Data</th><th>Descrição do EPI</th><th>CA</th><th>Quantidade</th><th>Assinatura</th><th>Data assinatura</th></tr></thead>
+    <tbody>${linhasTabela || `<tr><td colspan="7" style="text-align:center;color:#777;">Nenhum item no período selecionado.</td></tr>`}</tbody>
+  </table>
+  <div class="decl">Declaro ter recebido o(s) equipamento(s) de proteção individual acima relacionado(s), em perfeito estado de conservação e funcionamento, comprometendo-me a utilizá-lo(s) exclusivamente para a finalidade a que se destina(m), bem como a comunicar de imediato qualquer alteração que o(s) torne impróprio(s) para uso.</div>
+  <div class="linha">Assinatura</div>
+  <div class="footnote">Documento gerado automaticamente pelo Painel de Controle de Estoque — Biosyn, em ${escapeHtml(fmtDate(todayISO()))}.</div>
+  <div class="no-print"><button onclick="window.print()">Imprimir / Salvar como PDF</button></div>
+</body></html>`;
+
+  const win = window.open("", "_blank");
+  if (!win){ alert("Não foi possível abrir a Ficha de EPI. Verifique se o bloqueador de pop-ups do navegador está ativo para este site."); return; }
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+}
+
+/* ================================ RELATÓRIOS ================================ */
+function downloadExcel(rows, sheetName, filename){
+  if (typeof XLSX === "undefined"){
+    alert("Não foi possível carregar o gerador de planilhas Excel. Verifique sua conexão com a internet e tente novamente.");
+    return;
+  }
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, sheetName);
+  XLSX.writeFile(wb, filename);
+}
+function estoquesHTML(){
+  const materiaisNaSala = DB.materiais.filter(m => inRoom(m, ROOM));
+  const abaixoMinimo = materiaisNaSala.filter(m => (m.estoqueAtual||0) <= (m.estoqueMinimo||0));
+  const statusValidadePorMaterial = materiaisNaSala.map(m => piorValidadeMaterial(m.id)).filter(Boolean);
+  const contarStatus = (status) => statusValidadePorMaterial.filter(c=>c.status===status).length;
+  const qtdVencidos = contarStatus("vencido");
+  const qtdHoje = contarStatus("hoje");
+  const qtdCriticos = contarStatus("critico");
+  const qtdAtencao = contarStatus("atencao");
+
+  const estoqueSection = sectionHTML("Estoque atual","boxes",
+    `<button class="sc-btn sc-btn-ghost" onclick="exportEstoqueExcel()">${icon("download",14)}<span>Exportar Excel</span></button>`, `
+    ${abaixoMinimo.length>0 ? `<div class="sc-hint sc-hint-alert">${icon("alert",14)} ${abaixoMinimo.length} material(is) abaixo do estoque mínimo.</div>` : ""}
+    ${(qtdVencidos+qtdHoje+qtdCriticos+qtdAtencao)>0 ? `
+    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px;">
+      ${qtdVencidos>0?`<span class="sc-tag tag-vencido">${qtdVencidos} vencido(s)</span>`:""}
+      ${qtdHoje>0?`<span class="sc-tag tag-hoje">${qtdHoje} vencendo hoje</span>`:""}
+      ${qtdCriticos>0?`<span class="sc-tag tag-critico">${qtdCriticos} com menos de ${LIMITE_CRITICO_DIAS} dias</span>`:""}
+      ${qtdAtencao>0?`<span class="sc-tag tag-atencao">${qtdAtencao} com menos de ${LIMITE_ATENCAO_DIAS} dias</span>`:""}
+    </div>` : ""}
+    <div class="sc-tablewrap" id="estoqueTableWrap">${estoqueTableHTML(materiaisNaSala)}</div>
+  `);
+
+  return pageHTML("Estoques", `Quantidades atuais, lotes e validade<span class="sc-roomchip">${icon(roomIcon(ROOM),11)} ${roomLabel(ROOM)}</span>`, "", estoqueSection);
+}
+function relMovimentacoesHTML(){
+  const materiaisNaSala = DB.materiais.filter(m => inRoom(m, ROOM));
+  const setoresNaSala = DB.setores.filter(s => inRoom(s, ROOM));
+  const materialOptions = `<option value="">Todos</option>` + materiaisNaSala.map(m=>`<option value="${m.id}">${escapeHtml(m.nome)}</option>`).join("");
+  const setorOptions = `<option value="">Todos</option>` + setoresNaSala.map(s=>`<option value="${s.id}">${escapeHtml(s.nome)}</option>`).join("");
+
+  const movSection = sectionHTML("Histórico de movimentações","clipboard",
+    `<button class="sc-btn sc-btn-ghost" onclick="exportMovimentosExcel()">${icon("download",14)}<span>Exportar Excel</span></button>`, `
+    <div class="sc-fieldrow">
+      <label class="sc-field"><span>De</span><input class="sc-input" type="date" id="rf_de" onchange="renderRelatorioMov()"></label>
+      <label class="sc-field"><span>Até</span><input class="sc-input" type="date" id="rf_ate" onchange="renderRelatorioMov()"></label>
+      <label class="sc-field is-wide"><span>Material</span><select class="sc-input" id="rf_material" onchange="renderRelatorioMov()">${materialOptions}</select></label>
+      <label class="sc-field is-wide"><span>Setor</span><select class="sc-input" id="rf_setor" onchange="renderRelatorioMov()">${setorOptions}</select></label>
+    </div>
+    <div class="sc-tablewrap" id="relatorioMovWrap" style="margin-top:12px;">${movTableHTML(filterMovs())}</div>
+  `);
+
+  return pageHTML("Movimentações", `Histórico completo de entradas e saídas<span class="sc-roomchip">${icon(roomIcon(ROOM),11)} ${roomLabel(ROOM)}</span>`, "", movSection);
+}
+function estoqueTableHTML(materiais){
+  if (materiais.length===0) return emptyHTML("Nenhum material nesta visão.");
+  const mostrarColunaVisibilidade = ROOM === "todas";
+  const totalColunas = 8 + (mostrarColunaVisibilidade?1:0);
+  return `<table class="sc-table">
+    <thead><tr><th></th><th>Código</th><th>Material</th><th>Categoria</th><th class="num">Estoque</th><th class="num">Mínimo</th><th>Situação</th><th>Validade</th>${mostrarColunaVisibilidade?"<th>Visibilidade</th>":""}</tr></thead>
+    <tbody>${materiais.map(m=>{
+      const baixo = (m.estoqueAtual||0) <= (m.estoqueMinimo||0);
+      const expandido = ESTOQUE_EXPANDIDO.has(m.id);
+      const piorValidade = piorValidadeMaterial(m.id);
+      const linha = `<tr class="sc-rowclick" onclick="toggleEstoqueDetalhe('${m.id}')">
+        <td class="sc-expandcell">${icon(expandido?"chevronDown":"chevronRight",13)}</td>
+        <td class="mono">${escapeHtml(m.codigo||"—")}</td><td>${escapeHtml(m.nome)}</td><td>${escapeHtml(m.categoria)}</td>
+        <td class="num mono">${fmtNum(m.estoqueAtual)} ${escapeHtml(m.unidade)}</td><td class="num mono">${fmtNum(m.estoqueMinimo)}</td>
+        <td><span class="sc-tag ${baixo?"tag-saida":"tag-entrada"}">${baixo?"Abaixo do mínimo":"Normal"}</span></td>
+        <td>${piorValidade ? validadeBadgeFromClass(piorValidade) : `<span class="sc-tag tag-semvalidade">—</span>`}</td>
+        ${mostrarColunaVisibilidade?`<td>${escopoBadgesHTML(m.escopo)}</td>`:""}</tr>`;
+      const detalhe = expandido ? `<tr class="sc-rowdetail"><td colspan="${totalColunas}">${loteDetalheHTML(m)}</td></tr>` : "";
+      return linha + detalhe;
+    }).join("")}</tbody></table>`;
+}
+function loteDetalheHTML(material){
+  const lotes = getLotesEmEstoque(material.id);
+  if (lotes.length===0){
+    return `<div class="sc-hint" style="padding:8px 4px;">Nenhum lote com saldo rastreado para este material — o estoque atual pode ter sido definido diretamente no cadastro, sem passar por uma entrada com lote.</div>`;
+  }
+  return `<table class="sc-table sc-subtable">
+    <thead><tr><th>Lote</th><th class="num">Saldo</th><th>Validade</th><th>Situação</th><th>Documento</th></tr></thead>
+    <tbody>${lotes.map(l=>`
+      <tr><td class="mono">${l.lote?escapeHtml(l.lote):"(sem lote)"}</td>
+      <td class="num mono">${fmtNum(l.saldo)} ${escapeHtml(material.unidade)}</td>
+      <td class="mono">${l.validade?fmtDate(l.validade):"—"}</td>
+      <td>${validadeBadgeHTML(l.validade)}</td>
+      <td class="mono">${escapeHtml(l.documento||"—")}</td></tr>`).join("")}</tbody></table>`;
+}
+function toggleEstoqueDetalhe(materialId){
+  if (ESTOQUE_EXPANDIDO.has(materialId)) ESTOQUE_EXPANDIDO.delete(materialId);
+  else ESTOQUE_EXPANDIDO.add(materialId);
+  renderEstoqueTable();
+}
+function renderEstoqueTable(){
+  const wrap = document.getElementById("estoqueTableWrap");
+  if (!wrap) return;
+  const materiaisNaSala = DB.materiais.filter(m => inRoom(m, ROOM));
+  wrap.innerHTML = estoqueTableHTML(materiaisNaSala);
+}
+function filterMovs(){
+  const de = document.getElementById("rf_de")?.value || "";
+  const ate = document.getElementById("rf_ate")?.value || "";
+  const materialId = document.getElementById("rf_material")?.value || "";
+  const setorId = document.getElementById("rf_setor")?.value || "";
+  return DB.movimentos.filter(m=>{
+    if (!inRoom(m, ROOM)) return false;
+    if (de && m.data < de) return false;
+    if (ate && m.data > ate) return false;
+    if (materialId && m.materialId !== materialId) return false;
+    if (setorId && m.setorId !== setorId) return false;
+    return true;
+  });
+}
+function movTableHTML(list){
+  const materialMap = mapBy(DB.materiais), setorMap = mapBy(DB.setores), tipoMap = mapBy(DB.tipos);
+  if (list.length===0) return emptyHTML("Nenhuma movimentação encontrada para os filtros selecionados.");
+  const mostrarColunaVisibilidade = ROOM === "todas";
+  return `<table class="sc-table">
+    <thead><tr><th>Data</th><th>Material</th><th>Tipo</th><th>Setor</th><th class="num">Qtd.</th><th>Lote</th><th>Documento</th>${mostrarColunaVisibilidade?"<th>Visibilidade</th>":""}</tr></thead>
+    <tbody>${list.map(m=>`
+      <tr><td class="mono">${fmtDate(m.data)}</td><td>${escapeHtml(materialMap[m.materialId]?.nome||"—")}</td>
+      <td>${efeitoTagHTML(tipoMap[m.tipoMovimentoId])}</td><td>${escapeHtml(setorMap[m.setorId]?.nome||"—")}</td>
+      <td class="num mono">${fmtNum(m.quantidade)}</td><td class="mono">${escapeHtml(m.lote||"—")}</td>
+      <td class="mono">${escapeHtml(m.documento||"—")}</td>${mostrarColunaVisibilidade?`<td>${escopoBadgesHTML(m.escopo)}</td>`:""}</tr>`).join("")}</tbody></table>`;
+}
+function renderRelatorioMov(){
+  const wrap = document.getElementById("relatorioMovWrap");
+  if (wrap) wrap.innerHTML = movTableHTML(filterMovs());
+}
+function exportEstoqueExcel(){
+  const materiaisNaSala = DB.materiais.filter(m => inRoom(m, ROOM));
+  const rows = materiaisNaSala.map(m => ({
+    "Código": m.codigo || "",
+    "Código de Barras": m.codigoBarras || "",
+    "Nome": m.nome,
+    "Categoria": m.categoria,
+    "Estoque Atual": m.estoqueAtual || 0,
+    "Estoque Mínimo": m.estoqueMinimo || 0,
+    "Unidade": m.unidade,
+    "Situação": (m.estoqueAtual||0) <= (m.estoqueMinimo||0) ? "Abaixo do mínimo" : "Normal",
+    "Situação de Validade": piorValidadeMaterial(m.id)?.label || "Sem validade",
+    "Visibilidade": escopoLabelPlain(m.escopo),
+  }));
+  downloadExcel(rows, "Estoque Atual", `estoque_atual_${todayISO()}.xlsx`);
+}
+function exportMovimentosExcel(){
+  const materialMap = mapBy(DB.materiais), setorMap = mapBy(DB.setores), tipoMap = mapBy(DB.tipos);
+  const list = filterMovs();
+  const rows = list.map(m => ({
+    "Data": fmtDate(m.data),
+    "Material": materialMap[m.materialId]?.nome || "",
+    "Tipo": tipoMap[m.tipoMovimentoId]?.nome || "",
+    "Setor": setorMap[m.setorId]?.nome || "",
+    "Quantidade": m.quantidade,
+    "Lote": m.lote || "",
+    "Validade": m.validade ? fmtDate(m.validade) : "",
+    "Documento": m.documento || "",
+    "Visibilidade": escopoLabelPlain(m.escopo),
+  }));
+  downloadExcel(rows, "Movimentações", `movimentacoes_${todayISO()}.xlsx`);
+}
+
+/* ============================ RELATÓRIOS (ANÁLISE / CONSUMO) ============================ */
+let CONSUMO_MATERIAIS_SELECIONADOS = new Set();
+
+function relatoriosAnaliseHTML(){
+  const materiaisNaSala = DB.materiais.filter(m => inRoom(m, ROOM)).sort((a,b)=>a.nome.localeCompare(b.nome));
+  const listaMateriaisHTML = materiaisNaSala.length===0 ? emptyHTML("Nenhum material nesta visão.") : `
+    <div style="display:flex; flex-direction:column; gap:4px; max-height:220px; overflow:auto; border:1px solid var(--line); border-radius:8px; padding:8px 10px;">
+      ${materiaisNaSala.map(m=>`
+        <label style="display:flex; align-items:center; gap:8px; font-size:12.5px; font-weight:400; padding:2px 0;">
+          <input type="checkbox" id="consumo_mat_${m.id}" ${CONSUMO_MATERIAIS_SELECIONADOS.has(m.id)?"checked":""} onchange="onConsumoMaterialToggle('${m.id}', this.checked)">
+          <span>${escapeHtml(m.nome)}${m.codigo?` (${escapeHtml(m.codigo)})`:""}</span>
+        </label>`).join("")}
+    </div>`;
+
+  const painelConsumo = sectionHTML("Consumo por material","trend","", `
+    <div class="sc-fieldrow">
+      <label class="sc-field"><span>De</span><input class="sc-input" type="date" id="cf_de" onchange="renderConsumoTable()"></label>
+      <label class="sc-field"><span>Até</span><input class="sc-input" type="date" id="cf_ate" onchange="renderConsumoTable()"></label>
+      <div class="sc-field is-wide">
+        <span>Materiais</span>
+        <div style="display:flex; gap:8px; margin-bottom:6px;">
+          <button type="button" class="sc-btn sc-btn-ghost" onclick="selecionarTodosConsumo()">Selecionar todos</button>
+          <button type="button" class="sc-btn sc-btn-ghost" onclick="limparSelecaoConsumo()">Limpar seleção</button>
+        </div>
+        ${listaMateriaisHTML}
+      </div>
+    </div>
+    <div class="sc-tablewrap" id="consumoTableWrap" style="margin-top:12px;">${consumoTableHTML()}</div>
+    <div class="sc-formfoot" style="padding:14px 0 0;">
+      <button class="sc-btn sc-btn-ghost" onclick="exportConsumoExcel()">${icon("download",14)}<span>Exportar Excel</span></button>
+    </div>
+  `);
+
+  let painelRegulatorio = "";
+  if (ROOM === "controlados"){
+    painelRegulatorio = sectionHTML("Relatório para Órgãos Reguladores","clipboard","", `
+      <div class="sc-hint">
+        Gera uma planilha com entradas, saídas e saldo por material no período selecionado acima, como ponto de partida para a prestação de contas de produtos químicos controlados (ex.: Polícia Federal / SIPROQUIM).
+      </div>
+      <div class="sc-hint" style="color:var(--amber); margin-top:6px;">
+        ${icon("alert",13)} Este é um modelo de apoio interno — confira sempre o layout e os campos exigidos na especificação oficial vigente antes de submeter ao órgão regulador.
+      </div>
+      <div class="sc-formfoot" style="padding:14px 0 0;">
+        <button class="sc-btn sc-btn-primary" onclick="exportRelatorioRegulatorioExcel()">${icon("download",14)}<span>Gerar relatório para Órgãos Reguladores</span></button>
+      </div>
+    `);
+  }
+
+  return pageHTML("Consumo", `Consumo por material e análises<span class="sc-roomchip">${icon(roomIcon(ROOM),11)} ${roomLabel(ROOM)}</span>`, "",
+    `${painelConsumo}${painelRegulatorio}`);
+}
+function onConsumoMaterialToggle(materialId, checked){
+  if (checked) CONSUMO_MATERIAIS_SELECIONADOS.add(materialId);
+  else CONSUMO_MATERIAIS_SELECIONADOS.delete(materialId);
+  renderConsumoTable();
+}
+function selecionarTodosConsumo(){
+  const materiaisNaSala = DB.materiais.filter(m => inRoom(m, ROOM));
+  materiaisNaSala.forEach(m => CONSUMO_MATERIAIS_SELECIONADOS.add(m.id));
+  renderMain();
+}
+function limparSelecaoConsumo(){
+  CONSUMO_MATERIAIS_SELECIONADOS.clear();
+  renderMain();
+}
+function calcularConsumo(){
+  const de = document.getElementById("cf_de")?.value || "";
+  const ate = document.getElementById("cf_ate")?.value || "";
+  const tipoMap = mapBy(DB.tipos);
+  const materiaisAlvo = DB.materiais.filter(m => inRoom(m, ROOM) && CONSUMO_MATERIAIS_SELECIONADOS.has(m.id));
+  return materiaisAlvo.map(m => {
+    const movs = DB.movimentos.filter(mv => {
+      if (mv.materialId !== m.id) return false;
+      if (!inRoom(mv, ROOM)) return false;
+      if (de && mv.data < de) return false;
+      if (ate && mv.data > ate) return false;
+      return tipoMap[mv.tipoMovimentoId]?.efeito === "saida";
+    });
+    const totalConsumido = round3(movs.reduce((acc,mv)=>acc+mv.quantidade, 0));
+    return { material: m, totalConsumido, numMovimentos: movs.length };
+  }).sort((a,b)=> b.totalConsumido - a.totalConsumido);
+}
+function consumoTableHTML(){
+  if (CONSUMO_MATERIAIS_SELECIONADOS.size===0){
+    return emptyHTML("Selecione um ou mais materiais acima para ver o consumo no período.");
+  }
+  const linhas = calcularConsumo();
+  if (linhas.length===0) return emptyHTML("Nenhum material selecionado nesta visão.");
+  return `<table class="sc-table">
+    <thead><tr><th>Material</th><th>Categoria</th><th class="num">Consumido no período</th><th class="num">Nº movimentações</th></tr></thead>
+    <tbody>${linhas.map(l=>`
+      <tr><td>${escapeHtml(l.material.nome)}</td><td>${escapeHtml(l.material.categoria)}</td>
+      <td class="num mono">${fmtNum(l.totalConsumido)} ${escapeHtml(l.material.unidade)}</td>
+      <td class="num mono">${l.numMovimentos}</td></tr>`).join("")}</tbody></table>`;
+}
+function renderConsumoTable(){
+  const wrap = document.getElementById("consumoTableWrap");
+  if (wrap) wrap.innerHTML = consumoTableHTML();
+}
+function exportConsumoExcel(){
+  const linhas = calcularConsumo();
+  const rows = linhas.map(l => ({
+    "Material": l.material.nome,
+    "Código": l.material.codigo || "",
+    "Categoria": l.material.categoria,
+    "Consumido no Período": l.totalConsumido,
+    "Unidade": l.material.unidade,
+    "Nº de Movimentações": l.numMovimentos,
+  }));
+  downloadExcel(rows, "Consumo por Material", `consumo_por_material_${todayISO()}.xlsx`);
+}
+function exportRelatorioRegulatorioExcel(){
+  const de = document.getElementById("cf_de")?.value || "";
+  const ate = document.getElementById("cf_ate")?.value || "";
+  const tipoMap = mapBy(DB.tipos);
+  const materiaisNaSala = DB.materiais.filter(m => inRoom(m, ROOM));
+  const rows = materiaisNaSala.map(m => {
+    const movsPeriodo = DB.movimentos.filter(mv => {
+      if (mv.materialId !== m.id || !inRoom(mv, ROOM)) return false;
+      if (de && mv.data < de) return false;
+      if (ate && mv.data > ate) return false;
+      return true;
+    });
+    const totalEntradas = round3(movsPeriodo.filter(mv=>tipoMap[mv.tipoMovimentoId]?.efeito==="entrada").reduce((a,mv)=>a+mv.quantidade,0));
+    const totalSaidas = round3(movsPeriodo.filter(mv=>tipoMap[mv.tipoMovimentoId]?.efeito==="saida").reduce((a,mv)=>a+mv.quantidade,0));
+    const estoqueFinal = m.estoqueAtual || 0;
+    const estoqueInicial = round3(estoqueFinal - totalEntradas + totalSaidas);
+    return {
+      "Código": m.codigo || "",
+      "Material": m.nome,
+      "Categoria": m.categoria,
+      "Unidade": m.unidade,
+      "Estoque Inicial (estimado)": estoqueInicial,
+      "Total Entradas no Período": totalEntradas,
+      "Total Saídas no Período": totalSaidas,
+      "Estoque Final": estoqueFinal,
+      "Período": `${de?fmtDate(de):"—"} a ${ate?fmtDate(ate):"—"}`,
+    };
+  });
+  downloadExcel(rows, "Relatório Regulatório", `relatorio_orgaos_reguladores_${todayISO()}.xlsx`);
+}
+
+/* ------------------------------- boot ------------------------------- */
+loadAll();
+</script>
+</body>
+</html>
