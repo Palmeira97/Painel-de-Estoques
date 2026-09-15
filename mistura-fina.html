@@ -613,16 +613,30 @@ async function abrirArquivoDados(){
     const perm = await handle.requestPermission({ mode: "readwrite" });
     if (perm !== "granted"){ alert("Permissão de leitura e escrita não concedida."); return; }
     const file = await handle.getFile();
-    const data = JSON.parse(await file.text());
-    for (const key of ["materiais","categorias","unidades","setores","tipos","movimentos"]){
-      if (Array.isArray(data[key])) DB[key] = data[key].map(x => ({ escopo:"ambas", ...x }));
+    let data;
+    try {
+      data = JSON.parse(await file.text());
+    } catch(parseErr){
+      alert("O arquivo selecionado não é um JSON válido — ele pode estar corrompido ou não ser um arquivo de dados deste painel.");
+      return;
     }
-    for (const key of ["materiais","categorias","unidades","setores","tipos","movimentos"]) persistLocalOnly(key);
+    const chaves = ["materiais","categorias","unidades","setores","tipos","movimentos","colaboradores","misturasFinas"];
+    let algumaChaveEncontrada = false;
+    for (const key of chaves){
+      if (Array.isArray(data[key])){ DB[key] = data[key]; algumaChaveEncontrada = true; }
+    }
+    if (!algumaChaveEncontrada){
+      alert("O arquivo selecionado não parece ser um arquivo de dados deste painel (nenhuma informação reconhecida foi encontrada nele).");
+      return;
+    }
+    for (const key of chaves) persistLocalOnly(key);
     DATA_FILE_HANDLE = handle;
     PENDING_FILE_HANDLE = null;
     await idbSet("dataFile", handle);
     render();
-  } catch(e){ if (e && e.name !== "AbortError") alert("Não foi possível abrir o arquivo selecionado. Verifique se é um arquivo de dados válido deste painel."); }
+  } catch(e){
+    if (e && e.name !== "AbortError") alert(`Não foi possível abrir o arquivo selecionado. Detalhe técnico: ${e && e.message ? e.message : e}`);
+  }
 }
 function persistLocalOnly(key){ storageSet(`${STORAGE_PREFIX}:${key}`, JSON.stringify(DB[key])); }
 async function desconectarArquivoDados(){
@@ -664,6 +678,7 @@ async function escreverArquivoDados(){
     const payload = JSON.stringify({
       materiais: DB.materiais, categorias: DB.categorias, unidades: DB.unidades,
       setores: DB.setores, tipos: DB.tipos, movimentos: DB.movimentos,
+      colaboradores: DB.colaboradores, misturasFinas: DB.misturasFinas,
       salvoEm: new Date().toISOString(),
     }, null, 2);
     await writable.write(payload);
