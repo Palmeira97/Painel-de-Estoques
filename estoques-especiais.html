@@ -290,6 +290,72 @@ function seedSetores(){ return [
   { id: uid(), nome:"Almoxarifado de EPIs", responsavelId:"", escopo:[...ALL_ROOM_IDS], salaBase:"epis" },
   { id: uid(), nome:"Sala de Materiais Gráficos", responsavelId:"", escopo:[...ALL_ROOM_IDS], salaBase:"graficos" },
 ]; }
+const COLABORADORES_PADRAO_BIOSYN = [
+  ["ALESSANDRA GRUBER","Controle de Qualidade"], ["AMANDA DA SILVA VICENTE","Recursos Humanos"],
+  ["AMANDA GRUN WESTFAL","Administrativo Geral"], ["ANA PAULA DA SILVA CARDOSO","Faturamento"],
+  ["ANDRELISE LUCINEIDE DELFINO","Manutenção Industrial"], ["ANDRESSA OLIVEIRA MACHADO","Segurança e Esterilização"],
+  ["ARTHUR HENRIQUE PALMEIRA","Suprimentos"], ["BIANCA ALVES DA SILVA","Logística"],
+  ["BRYAN DE LIMA DOS SANTOS LIMA","Setor Ingredientes"], ["CALLIANDRA DAVID ESMALA","Marketing"],
+  ["CAMILA CAMPOS VACA","Controle de Qualidade"], ["CAMILA ROSA DUARTE","Setor Ingredientes"],
+  ["CLAUDETE MARTINS DE LARA","Segurança e Esterilização"], ["CLAUDINEI SOARES DA SILVA","Administrativo Geral"],
+  ["DAIANE DO ROSARIO","Controle de Qualidade"], ["DIANA DA SILVA SOUZA","Recursos Humanos"],
+  ["DILMARA CUNHA DA SILVA","Segurança e Esterilização"], ["ELAINE DE MELO","Setor Pasta"],
+  ["EMILY CORREA","Laboratório"], ["FERNANDA DANIELA SCHWEITZER","Compras"],
+  ["FERNANDA PEREIRA DA CRUZ","Setor Ingredientes"], ["FRANCIELY LEAO PATRICIO","Marketing"],
+  ["GABRIELA SAMARA DA SILVA","Setor Ingredientes"], ["GABRIELE DA LUZ SULZ","Setor Pasta"],
+  ["GILMAR MEFELLES","Manutenção Industrial"], ["GILSON PRUENÇA DA SILVA","Setor Pó"],
+  ["GIOVANE PIETROSKI","Manutenção Industrial"], ["GISELI ALVES DE OLIVEIRA","PCPM"],
+  ["GUIDO JONATHAN KRUGER","Setor Premix"], ["HELOIZA DE BRAGA","Controle de Qualidade"],
+  ["HENRIQUE OSSOVSKI","Segurança e Esterilização"], ["HÍCARO ALEXANDRE FRAGOSO DE BARROS","Setor Sache"],
+  ["HUGO SILVA OLIVEIRA","Setor Premix"], ["IANDRA VIEIRA","Controle de Qualidade"],
+  ["IDEVAN SOUZA ACOSTA","Almoxarifado"], ["JACKSON BALICIO GALDINO","TI"],
+  ["JAMILLE MARIA HEIN GENAUCK","Setor Ingredientes"], ["JAQUELINE CORREIA DE NEGREIRO","Setor Sache"],
+  ["JEISIANE PEREIRA BORSTMANN","Setor Ingredientes"], ["JESSICA GAZANIGA","Setor Pasta"],
+  ["JESSICA RODRIGUES GREGORIO MIRANDA","Setor Ingredientes"], ["JOAO GARIEL DOS SANTOS CAMARGO","Setor Pó"],
+  ["JOSNE CARLETTO CRIPPA DA SILVA","Setor Ingredientes"], ["JUAN CARLOS REINERT","Suprimentos"],
+  ["JUAN FELIPE SCHROEDER DA ROSA","Setor Líquido"], ["KARINE SILVA GIL","Setor Ingredientes"],
+  ["KETLYN KUCHENBECKER","Marketing"], ["LARISSA SILVEIRA BIANCHINI","Laboratório"],
+  ["LEANDRO CARDOZO DE SOUZA","Marketing"], ["LEONARDO RAFAEL PEREZ MOLINA","PCPM"],
+  ["LIJIA CRISTINA DE OLIVEIRA","Administrativo Geral"], ["LUANA DE FATIMA BATISTA","Segurança e Esterilização"],
+  ["LUCAS EDUARDO DA SILVA MEYER","Setor Pó"], ["LUCAS ESTEVAO PEREIRA","Setor Sache"],
+  ["LUCIA MARIA BISEWSKI","Industrial"], ["MABILA PAVESI DA SILVA","Setor Ingredientes"],
+  ["MAIARA STEFANI DA COSTA RODRIGUES","Administrativo Geral"], ["MARIA EDUARDA FLAVIA WODTKE","Laboratório"],
+  ["MARIA EDUARDA RODRIGUES","Setor Pasta"], ["MARIA ROSANGELA DE SOUZA","Segurança e Esterilização"],
+  ["MARIANA CRISTINA DE LOS ANGELES","Segurança e Esterilização"], ["MARINA TAVARES NUNES","Compras"],
+  ["MATHEUS HENRIQUE MACIEL PEIXOTO","Segurança e Esterilização"], ["MAURÍCIO FELIPE DA SILVA","Logística"],
+  ["MICHELLY ADRIANE SOLDATI QUANDT","Controle de Qualidade"], ["MUGUI OKUYAMA","Setor Ingredientes"],
+  ["NAIARA LINHARES","Setor Pasta"], ["NEIDE HEIMANN SILVEIRA","Segurança e Esterilização"],
+  ["NEISA MILENA MINHOS SEVERO CHAVES","Setor Premix"], ["NICOLY RODRIGUES DA SILVA","Marketing"],
+  ["OSVALDO EVARISTO JUNIOR","Almoxarifado"], ["PIERRY PRADO","Almoxarifado"],
+  ["RENATA ALBUS","Financeiro"], ["RODRIGO LAURO BORGES","Financeiro"],
+  ["SARA GABRIELA DE OLIVEIRA","Recursos Humanos"], ["SILVANA REGINA FREITAS DE AVILA","Setor Pasta"],
+  ["SOLARY CRISTINA ISOPP","Controle de Qualidade"], ["TACILA EDUARDA CATARINA CARDOSO","Controle de Qualidade"],
+  ["VANESSA APARECIDA VIEIRA","Laboratório"], ["VITOR GUSTAVO DA SILVA","Manutenção Industrial"],
+  ["VITÓRIA LUIZA REINERT SILVA","Marketing"], ["VIVIANE CARLIM CARDOSO PEREIRA","Setor Sache"],
+];
+function garantirColaboradoresPadrao(){
+  const setoresNomes = [...new Set(COLABORADORES_PADRAO_BIOSYN.map(([,setor])=>setor))];
+  let setoresAlterados = false;
+  setoresNomes.forEach(nomeSetor => {
+    if (!DB.setores.some(s => s.nome.trim().toLowerCase()===nomeSetor.toLowerCase())){
+      DB.setores.push({ id: uid(), nome: nomeSetor, responsavelId:"", escopo:[...ALL_ROOM_IDS], salaBase:"" });
+      setoresAlterados = true;
+    }
+  });
+  if (setoresAlterados) persist("setores");
+
+  const setorIdPorNome = {};
+  DB.setores.forEach(s => { setorIdPorNome[s.nome.trim().toLowerCase()] = s.id; });
+
+  let colaboradoresAlterados = false;
+  COLABORADORES_PADRAO_BIOSYN.forEach(([nome, nomeSetor]) => {
+    if (!DB.colaboradores.some(c => c.nome.trim().toLowerCase()===nome.toLowerCase())){
+      DB.colaboradores.push({ id: uid(), nome, setorId: setorIdPorNome[nomeSetor.toLowerCase()]||"", escopo:[...ALL_ROOM_IDS] });
+      colaboradoresAlterados = true;
+    }
+  });
+  if (colaboradoresAlterados) persist("colaboradores");
+}
 function seedTipos(){ return [
   { id: uid(), nome:"Entrada por Compra", efeito:"entrada", escopo:[...ALL_ROOM_IDS] },
   { id: uid(), nome:"Entrada por Devolução", efeito:"entrada", escopo:[...ALL_ROOM_IDS] },
@@ -332,6 +398,13 @@ async function loadAll(){
   DB.materiais = DB.materiais.map(m => ({ codigoBarras: "", ca: "", caValidade: "", ...m }));
   // normaliza setores antigos: garante o campo de setor-base da sala e de responsável (colaborador)
   DB.setores = DB.setores.map(s => ({ salaBase: "", responsavelId: "", ...s }));
+
+  // migração: garante a lista padrão de setores e colaboradores da Biosyn
+  const colaboradoresPadraoMarcador = await storageGet(`${STORAGE_PREFIX}:colaboradores_padrao_biosyn_v1`);
+  if (!colaboradoresPadraoMarcador){
+    garantirColaboradoresPadrao();
+    storageSet(`${STORAGE_PREFIX}:colaboradores_padrao_biosyn_v1`, "1");
+  }
 
   await tentarRestaurarArquivoDados();
 
