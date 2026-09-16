@@ -298,6 +298,9 @@ const COLABORADORES_PADRAO_BIOSYN = [
   ["VANESSA APARECIDA VIEIRA","Laboratório"], ["VITOR GUSTAVO DA SILVA","Manutenção Industrial"],
   ["VITÓRIA LUIZA REINERT SILVA","Marketing"], ["VIVIANE CARLIM CARDOSO PEREIRA","Setor Sache"],
 ];
+function paraNomeProprio(texto){
+  return texto.trim().split(/\s+/).map(palavra => palavra.charAt(0).toUpperCase() + palavra.slice(1).toLowerCase()).join(" ");
+}
 function garantirColaboradoresPadrao(){
   const setoresNomes = [...new Set(COLABORADORES_PADRAO_BIOSYN.map(([,setor])=>setor))];
   let setoresAlterados = false;
@@ -314,12 +317,25 @@ function garantirColaboradoresPadrao(){
 
   let colaboradoresAlterados = false;
   COLABORADORES_PADRAO_BIOSYN.forEach(([nome, nomeSetor]) => {
+    const nomeFormatado = paraNomeProprio(nome);
     if (!DB.colaboradores.some(c => c.nome.trim().toLowerCase()===nome.toLowerCase())){
-      DB.colaboradores.push({ id: uid(), nome, setorId: setorIdPorNome[nomeSetor.toLowerCase()]||"", escopo:[...ALL_ROOM_IDS] });
+      DB.colaboradores.push({ id: uid(), nome: nomeFormatado, setorId: setorIdPorNome[nomeSetor.toLowerCase()]||"", escopo:[...ALL_ROOM_IDS] });
       colaboradoresAlterados = true;
     }
   });
   if (colaboradoresAlterados) persist("colaboradores");
+}
+function corrigirCapitalizacaoColaboradoresPadrao(){
+  const nomesOriginais = new Set(COLABORADORES_PADRAO_BIOSYN.map(([nome]) => nome.trim().toLowerCase()));
+  let alterou = false;
+  DB.colaboradores = DB.colaboradores.map(c => {
+    if (nomesOriginais.has(c.nome.trim().toLowerCase()) && c.nome !== paraNomeProprio(c.nome)){
+      alterou = true;
+      return { ...c, nome: paraNomeProprio(c.nome) };
+    }
+    return c;
+  });
+  if (alterou) persist("colaboradores");
 }
 function seedTipos(){ return [
   { id: uid(), nome:"Entrada por Recebimento Almox.", efeito:"entrada", escopo:[...ALL_ROOM_IDS] },
@@ -374,6 +390,13 @@ async function loadAll(){
   if (!colaboradoresPadraoMarcador){
     garantirColaboradoresPadrao();
     storageSet(`${STORAGE_PREFIX}:colaboradores_padrao_biosyn_v1`, "1");
+  }
+
+  // migração: corrige capitalização dos colaboradores padrão já inseridos em maiúsculas
+  const capitalizacaoMarcador = await storageGet(`${STORAGE_PREFIX}:colaboradores_capitalizacao_v1`);
+  if (!capitalizacaoMarcador){
+    corrigirCapitalizacaoColaboradoresPadrao();
+    storageSet(`${STORAGE_PREFIX}:colaboradores_capitalizacao_v1`, "1");
   }
 
   await tentarRestaurarArquivoDados();
