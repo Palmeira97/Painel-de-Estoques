@@ -208,6 +208,31 @@ async function storageDelete(key){
 const uid = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2,8)}`;
 const todayISO = () => new Date().toISOString().slice(0,10);
 const round3 = (n) => Math.round(n*1000)/1000;
+function converterParaGramas(valor, unidade){
+  const u = (unidade||"").trim().toLowerCase();
+  if (u === "kg") return valor*1000;
+  if (u === "g") return valor;
+  return null; // unidade não suportada por esta regra (ex.: mL, L, unidade, caixa)
+}
+function limiteErroPesagem(alvoGramas){
+  if (alvoGramas <= 100) return { categoria: "até 100 g", limite: 0.02 };
+  if (alvoGramas <= 5000) return { categoria: "até 5.000 g", limite: 0.3 };
+  return { categoria: "acima de 5.000 g", limite: 0.6 };
+}
+function validarErroPesagem(pesoTotal, alvo, unidade){
+  if (!alvo || alvo<=0) return { bloqueado:false };
+  if (pesoTotal < alvo){
+    return { bloqueado:true, mensagem: `Peso abaixo do indicado na formulação.\n\nAlvo: ${fmtNum(alvo)} ${unidade||""}\nPesado: ${fmtNum(pesoTotal)} ${unidade||""}` };
+  }
+  const alvoGramas = converterParaGramas(alvo, unidade);
+  if (alvoGramas === null) return { bloqueado:false };
+  const { categoria, limite } = limiteErroPesagem(alvoGramas);
+  const erroPercentual = round3(((pesoTotal-alvo)/alvo)*100);
+  if (erroPercentual > limite){
+    return { bloqueado:true, mensagem: `Erro de pesagem superior ao limite estabelecido.\n\nEsta pesagem se enquadra na categoria "${categoria}", cujo limite máximo de erro é ${limite}%.\nErro atual: ${fmtNum(erroPercentual)}%` };
+  }
+  return { bloqueado:false };
+}
 const fmtDate = (iso) => { if(!iso) return "—"; const [y,m,d]=iso.split("-"); return `${d}/${m}/${y}`; };
 const fmtNum = (n) => new Intl.NumberFormat("pt-BR",{maximumFractionDigits:3}).format(n||0);
 const escapeHtml = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -890,7 +915,10 @@ function openScanner(callback){
   const errBox = document.getElementById("scannerError");
   if (errBox) errBox.innerHTML = "";
   const manualInput = document.getElementById("scannerManualInput");
-  if (manualInput) manualInput.value = "";
+  if (manualInput){
+    manualInput.value = "";
+    manualInput.focus();
+  }
   requestAnimationFrame(() => {
     if (typeof Html5Qrcode === "undefined"){
       if (errBox) errBox.innerHTML = `<div class="sc-error">${icon("alert",14)} Não foi possível carregar o leitor de código de barras. Verifique sua conexão com a internet.</div>`;
@@ -2378,7 +2406,7 @@ function deleteMovimento(id){
 
 /* ============================ PRODUÇÃO (mistura fina) ============================ */
 function criarSessaoProducaoVazia(){
-  return { misturaFinaId:"", data: todayISO(), lote:"", validade:"", documento:"", observacao:"", quantidadeAlvo:"", pesagens:{}, confirmados:{} };
+  return { misturaFinaId:"", data: todayISO(), lote:"", validade:"", documento:"", observacao:"", quantidadeAlvo:"", pesagens:{}, confirmados:{}, loteEmEdicao:{} };
 }
 function producaoHTML(){
   const misturas = DB.misturasFinas.filter(mf => inRoom(mf, ROOM));
@@ -2419,7 +2447,7 @@ function producaoHTML(){
   } else {
     listaTecnica = listaTecnicaPesagemHTML();
   }
-  const todosPesados = mf ? mf.ingredientes.every(ing => PRODUCAO_SESSAO.pesagens[ing.materialId]) : false;
+  const todosPesados = mf ? mf.ingredientes.every(ing => (PRODUCAO_SESSAO.pesagens[ing.materialId]||[]).length>0) : false;
 
   const algumPesado = mf ? Object.keys(PRODUCAO_SESSAO.pesagens).length > 0 : false;
   const rodape = `
@@ -2447,6 +2475,7 @@ function onProducaoMisturaChange(value){
   PRODUCAO_SESSAO.quantidadeAlvo = "";
   PRODUCAO_SESSAO.pesagens = {};
   PRODUCAO_SESSAO.confirmados = {};
+  PRODUCAO_SESSAO.loteEmEdicao = {};
   PESANDO_MATERIAL_ID = null;
   renderMain();
 }
@@ -2458,11 +2487,13 @@ function listaTecnicaPesagemHTML(){
   const linhas = mf.ingredientes.map(ing => {
     const material = materialMap[ing.materialId];
     const alvo = round3(ing.percentual/100 * quantidadeAlvo);
-    const pesagem = PRODUCAO_SESSAO.pesagens[ing.materialId];
+    const alocacoes = PRODUCAO_SESSAO.pesagens[ing.materialId] || [];
     const pesando = PESANDO_MATERIAL_ID === ing.materialId;
     let acaoHTML;
-    if (pesagem){
-      acaoHTML = `<span class="sc-tag tag-entrada">${icon("check",11)} Pesado: ${fmtNum(pesagem.quantidade)} ${escapeHtml(material?.unidade||"")} · Lote ${escapeHtml(pesagem.lote||"—")}</span>
+    if (alocacoes.length>0){
+      const total = round3(alocacoes.reduce((acc,a)=>acc+a.quantidade,0));
+      const lotesTexto = alocacoes.map(a=>`${a.lote||"—"} (${fmtNum(a.quantidade)})`).join(", ");
+      acaoHTML = `<span class="sc-tag tag-entrada">${icon("check",11)} Pesado: ${fmtNum(total)} ${escapeHtml(material?.unidade||"")} · ${escapeHtml(lotesTexto)}</span>
         <button class="sc-iconbtn" title="Repesar" onclick="reabrirPesagem('${ing.materialId}')">${icon("edit",13)}</button>`;
     } else if (pesando){
       acaoHTML = "";
@@ -2498,19 +2529,44 @@ function pesagemFormHTML(materialId, alvo, material){
         <div id="confirmacao_erro_${materialId}"></div>
       </div>`;
   }
+  const alocacoes = PRODUCAO_SESSAO.pesagens[materialId] || [];
   const lotes = getLotesEmEstoque(materialId);
+  const jaAlocadoPorLote = {};
+  alocacoes.forEach(a => { jaAlocadoPorLote[a.lote] = round3((jaAlocadoPorLote[a.lote]||0) + a.quantidade); });
+  const loteEmEdicao = PRODUCAO_SESSAO.loteEmEdicao?.[materialId] || "";
+
+  const resumoAlocacoes = alocacoes.length>0 ? `
+    <div style="display:flex; flex-direction:column; gap:4px; width:100%;">
+      ${alocacoes.map((a,i) => `
+        <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:6px 10px;">
+          <span class="sc-hint" style="margin:0;">Lote ${escapeHtml(a.lote||"—")}: ${fmtNum(a.quantidade)} ${escapeHtml(material?.unidade||"")}</span>
+          <button class="sc-iconbtn" title="Remover" onclick="removerAlocacaoPesagem('${materialId}', ${i})">${icon("x",12)}</button>
+        </div>`).join("")}
+    </div>` : "";
+
+  const totalPesado = round3(alocacoes.reduce((acc,a)=>acc+a.quantidade,0));
+  const faltamParaAlvo = round3(Math.max(0, alvo-totalPesado));
+
   const loteOptions = lotes.length===0
     ? `<option value="">Nenhum lote em estoque</option>`
-    : `<option value="">Selecione…</option>` + lotes.map(l=>`<option value="${escapeHtml(l.lote)}">${l.lote?escapeHtml(l.lote):"(sem lote)"} — saldo ${fmtNum(l.saldo)}${l.validade?` — val. ${fmtDate(l.validade)}`:""}</option>`).join("");
+    : `<option value="">Selecione o lote…</option>` + lotes.map(l=>{
+        const disponivel = round3(l.saldo - (jaAlocadoPorLote[l.lote]||0));
+        return `<option value="${escapeHtml(l.lote)}" ${loteEmEdicao===l.lote?"selected":""}>${l.lote?escapeHtml(l.lote):"(sem lote)"} — disponível ${fmtNum(disponivel)}${l.validade?` — val. ${fmtDate(l.validade)}`:""}</option>`;
+      }).join("");
+
   return `
     <div style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap; border-top:1px dashed var(--line); padding-top:10px;">
       ${material?.codigoBarras ? `<div class="sc-hint" style="width:100%; margin:0 0 2px;">${icon("check",12)} Material confirmado por código de barras.</div>` : `<div class="sc-hint" style="width:100%; margin:0 0 2px;">${icon("alert",12)} Este material não tem código de barras cadastrado — confirmação por leitura não disponível.</div>`}
-      <label class="sc-field"><span>Peso pesado</span><input class="sc-input" type="number" min="0" step="0.001" id="pesar_qtd_${materialId}" placeholder="Alvo: ${fmtNum(alvo)}" value=""></label>
-      <label class="sc-field is-wide"><span>Lote do material</span><select class="sc-input" id="pesar_lote_${materialId}">${loteOptions}</select></label>
-      <button class="sc-btn sc-btn-primary" onclick="confirmarPesagem('${materialId}')">${icon("check",13)}<span>Confirmar</span></button>
-      <button class="sc-btn sc-btn-ghost" onclick="cancelarPesagem()">Cancelar</button>
-    </div>
-    <div id="pesar_erro_${materialId}"></div>`;
+      ${resumoAlocacoes}
+      <label class="sc-field is-wide"><span>Lote do material <span style="color:var(--danger);">*</span></span><select class="sc-input" id="pesar_lote_${materialId}" onchange="onLotePesagemChange('${materialId}', this.value)">${loteOptions}</select></label>
+      <label class="sc-field"><span>Peso pesado neste lote</span><input class="sc-input" type="number" min="0" step="0.001" id="pesar_qtd_${materialId}" placeholder="${totalPesado>0?`Faltam p/ alvo: ${fmtNum(faltamParaAlvo)}`:`Alvo: ${fmtNum(alvo)}`}" value="" ${loteEmEdicao?"":"disabled"}></label>
+      <button class="sc-btn sc-btn-ghost" ${loteEmEdicao?"":"disabled"} onclick="adicionarAlocacaoPesagem('${materialId}')">${icon("plus",13)}<span>Adicionar lote</span></button>
+      <div id="pesar_erro_${materialId}" style="width:100%;"></div>
+      <div style="display:flex; gap:8px; width:100%;">
+        <button class="sc-btn sc-btn-primary" ${alocacoes.length===0?"disabled":""} onclick="concluirPesagemItem('${materialId}')">${icon("check",13)}<span>Concluir pesagem deste item</span></button>
+        <button class="sc-btn sc-btn-ghost" onclick="cancelarPesagem()">Cancelar</button>
+      </div>
+    </div>`;
 }
 function escanearConfirmacaoMaterial(materialId){
   openScanner((text) => {
@@ -2533,27 +2589,57 @@ function reabrirPesagem(materialId){
   if (PRODUCAO_SESSAO){
     delete PRODUCAO_SESSAO.pesagens[materialId];
     if (PRODUCAO_SESSAO.confirmados) delete PRODUCAO_SESSAO.confirmados[materialId];
+    if (PRODUCAO_SESSAO.loteEmEdicao) delete PRODUCAO_SESSAO.loteEmEdicao[materialId];
   }
   PESANDO_MATERIAL_ID = materialId;
   renderMain();
 }
-function confirmarPesagem(materialId){
-  const qtd = Number(document.getElementById(`pesar_qtd_${materialId}`).value);
-  const lote = document.getElementById(`pesar_lote_${materialId}`).value;
+function onLotePesagemChange(materialId, value){
+  if (!PRODUCAO_SESSAO.loteEmEdicao) PRODUCAO_SESSAO.loteEmEdicao = {};
+  PRODUCAO_SESSAO.loteEmEdicao[materialId] = value;
+  renderMain();
+}
+function adicionarAlocacaoPesagem(materialId){
   const errBox = document.getElementById(`pesar_erro_${materialId}`);
+  const lote = PRODUCAO_SESSAO.loteEmEdicao?.[materialId] || "";
+  const qtd = Number(document.getElementById(`pesar_qtd_${materialId}`).value);
+  if (!lote){ errBox.innerHTML = `<div class="sc-error">${icon("alert",14)} Selecione o lote antes de informar o peso.</div>`; return; }
   if (!qtd || qtd<=0){ errBox.innerHTML = `<div class="sc-error">${icon("alert",14)} Informe um peso maior que zero.</div>`; return; }
   const lotes = getLotesEmEstoque(materialId);
-  if (lotes.length===0){
-    errBox.innerHTML = `<div class="sc-error">${icon("alert",14)} Nenhum lote em estoque para este material — registre uma entrada em Movimentações antes de pesar.</div>`;
-    return;
-  }
-  if (!lote){ errBox.innerHTML = `<div class="sc-error">${icon("alert",14)} Selecione o lote do material.</div>`; return; }
   const loteInfo = lotes.find(l=>l.lote===lote);
-  if (loteInfo && qtd > loteInfo.saldo){
-    errBox.innerHTML = `<div class="sc-error">${icon("alert",14)} Peso maior que o saldo disponível deste lote (${fmtNum(loteInfo.saldo)}).</div>`;
+  const alocacoesAtuais = PRODUCAO_SESSAO.pesagens[materialId] || [];
+  const jaAlocado = round3(alocacoesAtuais.filter(a=>a.lote===lote).reduce((acc,a)=>acc+a.quantidade,0));
+  const disponivel = loteInfo ? round3(loteInfo.saldo - jaAlocado) : 0;
+  if (!loteInfo || qtd > disponivel){
+    errBox.innerHTML = `<div class="sc-error">${icon("alert",14)} O lote "${escapeHtml(lote)}" só tem ${fmtNum(disponivel)} disponível. Ajuste o peso ou adicione outro lote depois.</div>`;
     return;
   }
-  PRODUCAO_SESSAO.pesagens[materialId] = { quantidade: qtd, lote, validade: loteInfo?.validade||"" };
+  if (!PRODUCAO_SESSAO.pesagens[materialId]) PRODUCAO_SESSAO.pesagens[materialId] = [];
+  PRODUCAO_SESSAO.pesagens[materialId].push({ quantidade: qtd, lote, validade: loteInfo.validade||"" });
+  if (PRODUCAO_SESSAO.loteEmEdicao) delete PRODUCAO_SESSAO.loteEmEdicao[materialId];
+  renderMain();
+}
+function removerAlocacaoPesagem(materialId, index){
+  if (!PRODUCAO_SESSAO.pesagens[materialId]) return;
+  PRODUCAO_SESSAO.pesagens[materialId].splice(index, 1);
+  if (PRODUCAO_SESSAO.pesagens[materialId].length===0) delete PRODUCAO_SESSAO.pesagens[materialId];
+  renderMain();
+}
+function concluirPesagemItem(materialId){
+  const mf = DB.misturasFinas.find(m=>m.id===PRODUCAO_SESSAO.misturaFinaId);
+  const ing = mf?.ingredientes.find(i=>i.materialId===materialId);
+  const quantidadeAlvoTotal = Number(PRODUCAO_SESSAO.quantidadeAlvo) || 0;
+  const alvo = ing ? round3(ing.percentual/100 * quantidadeAlvoTotal) : 0;
+  const alocacoes = PRODUCAO_SESSAO.pesagens[materialId] || [];
+  const totalPesado = round3(alocacoes.reduce((acc,a)=>acc+a.quantidade,0));
+  const material = DB.materiais.find(m=>m.id===materialId);
+
+  const resultado = validarErroPesagem(totalPesado, alvo, material?.unidade);
+  if (resultado.bloqueado){
+    alert(resultado.mensagem);
+    return;
+  }
+
   PESANDO_MATERIAL_ID = null;
   renderMain();
 }
@@ -2591,23 +2677,27 @@ function submitProducao(){
   if (!mf){ errWrap.innerHTML = `<div class="sc-error">${icon("alert",14)} Selecione a mistura fina.</div>`; return; }
   const pesadosIds = Object.keys(PRODUCAO_SESSAO.pesagens);
   if (pesadosIds.length===0){ errWrap.innerHTML = `<div class="sc-error">${icon("alert",14)} Pese ao menos um item antes de registrar.</div>`; return; }
-  const todosPesados = mf.ingredientes.every(ing => PRODUCAO_SESSAO.pesagens[ing.materialId]);
+  const todosPesados = mf.ingredientes.every(ing => (PRODUCAO_SESSAO.pesagens[ing.materialId]||[]).length>0);
   const loteProduzido = (document.getElementById("pr_lote")?.value || PRODUCAO_SESSAO.lote || "").trim();
   if (!loteProduzido){ errWrap.innerHTML = `<div class="sc-error">${icon("alert",14)} Informe o lote produzido.</div>`; return; }
 
   const materialMap = mapBy(DB.materiais);
   for (const materialId of pesadosIds){
-    const pesagem = PRODUCAO_SESSAO.pesagens[materialId];
+    const alocacoes = PRODUCAO_SESSAO.pesagens[materialId];
     const lotes = getLotesEmEstoque(materialId);
-    const loteInfo = lotes.find(l=>l.lote===pesagem.lote);
-    if (!loteInfo || pesagem.quantidade > loteInfo.saldo){
-      errWrap.innerHTML = `<div class="sc-error">${icon("alert",14)} O lote "${escapeHtml(pesagem.lote)}" de "${escapeHtml(materialMap[materialId]?.nome||"?")}" não tem mais saldo suficiente. Repese este item.</div>`;
-      return;
+    const somaPorLote = {};
+    alocacoes.forEach(a => { somaPorLote[a.lote] = round3((somaPorLote[a.lote]||0) + a.quantidade); });
+    for (const [lote, soma] of Object.entries(somaPorLote)){
+      const loteInfo = lotes.find(l=>l.lote===lote);
+      if (!loteInfo || soma > loteInfo.saldo){
+        errWrap.innerHTML = `<div class="sc-error">${icon("alert",14)} O lote "${escapeHtml(lote)}" de "${escapeHtml(materialMap[materialId]?.nome||"?")}" não tem mais saldo suficiente. Repese este item.</div>`;
+        return;
+      }
     }
   }
 
   if (!todosPesados){
-    const faltando = mf.ingredientes.filter(ing => !PRODUCAO_SESSAO.pesagens[ing.materialId]).map(ing => materialMap[ing.materialId]?.nome||"?").join(", ");
+    const faltando = mf.ingredientes.filter(ing => !(PRODUCAO_SESSAO.pesagens[ing.materialId]||[]).length).map(ing => materialMap[ing.materialId]?.nome||"?").join(", ");
     const prosseguir = confirm(`Nem todos os itens da lista técnica foram pesados (faltam: ${faltando}). Clique em OK para registrar assim mesmo — o lote ficará marcado como pendente. Clique em Cancelar para continuar pesando.`);
     if (!prosseguir) return;
   }
@@ -2630,8 +2720,8 @@ function finalizarRegistroProducao(mf, loteProduzido, assinaturaOperador, penden
   const setorProducao = DB.setores.find(s=>s.id===mf.setorId);
   const agora = new Date().toISOString();
   const materialMap = mapBy(DB.materiais);
-  const ingredientesFaltantes = mf.ingredientes.filter(ing => !PRODUCAO_SESSAO.pesagens[ing.materialId]).map(ing => materialMap[ing.materialId]?.nome || ing.materialId);
-  const quantidadeProduzida = round3(Object.values(PRODUCAO_SESSAO.pesagens).reduce((acc, p) => acc + p.quantidade, 0));
+  const ingredientesFaltantes = mf.ingredientes.filter(ing => !(PRODUCAO_SESSAO.pesagens[ing.materialId]||[]).length).map(ing => materialMap[ing.materialId]?.nome || ing.materialId);
+  const quantidadeProduzida = round3(Object.values(PRODUCAO_SESSAO.pesagens).reduce((acc, alocacoes) => acc + alocacoes.reduce((a2,al)=>a2+al.quantidade,0), 0));
 
   const novosRegistros = [];
   novosRegistros.push({
@@ -2657,17 +2747,19 @@ function finalizarRegistroProducao(mf, loteProduzido, assinaturaOperador, penden
     criadoEm: agora,
   });
   mf.ingredientes.forEach(ing => {
-    const pesagem = PRODUCAO_SESSAO.pesagens[ing.materialId];
-    if (!pesagem) return;
-    novosRegistros.push({
-      id: uid(), producaoId, misturaFinaId: mf.id,
-      data: dataMov, materialId: ing.materialId, tipoMovimentoId: tipoConsumoId,
-      setorId: setorProducao?.id || "", quantidade: pesagem.quantidade, delta: -pesagem.quantidade,
-      lote: pesagem.lote, validade: pesagem.validade||"", documento, observacao,
-      escopo: escopoMov, colaboradorId: "",
-      assinaturaOperador: null, assinadoEmOperador: null,
-      assinatura: null, assinadoEm: null,
-      criadoEm: agora,
+    const alocacoes = PRODUCAO_SESSAO.pesagens[ing.materialId];
+    if (!alocacoes) return;
+    alocacoes.forEach(pesagem => {
+      novosRegistros.push({
+        id: uid(), producaoId, misturaFinaId: mf.id,
+        data: dataMov, materialId: ing.materialId, tipoMovimentoId: tipoConsumoId,
+        setorId: setorProducao?.id || "", quantidade: pesagem.quantidade, delta: -pesagem.quantidade,
+        lote: pesagem.lote, validade: pesagem.validade||"", documento, observacao,
+        escopo: escopoMov, colaboradorId: "",
+        assinaturaOperador: null, assinadoEmOperador: null,
+        assinatura: null, assinadoEm: null,
+        criadoEm: agora,
+      });
     });
   });
 
@@ -2679,17 +2771,19 @@ function finalizarRegistroProducao(mf, loteProduzido, assinaturaOperador, penden
   persist("movimentos");
 
   if (confirm("Produção registrada. Deseja imprimir etiquetas de pesagem para este lote?")){
-    const itensEtiqueta = mf.ingredientes
-      .filter(ing => PRODUCAO_SESSAO.pesagens[ing.materialId])
-      .map(ing => {
-        const pesagem = PRODUCAO_SESSAO.pesagens[ing.materialId];
-        const material = materialMap[ing.materialId];
-        return {
+    const itensEtiqueta = [];
+    mf.ingredientes.forEach(ing => {
+      const alocacoes = PRODUCAO_SESSAO.pesagens[ing.materialId];
+      if (!alocacoes) return;
+      const material = materialMap[ing.materialId];
+      alocacoes.forEach(pesagem => {
+        itensEtiqueta.push({
           materialNome: material?.nome||"—", materialCodigo: material?.codigo||"",
           loteIngrediente: pesagem.lote||"", misturaCodigo: mf.codigo||"", misturaLote: loteProduzido,
           data: fmtDate(dataMov), peso: pesagem.quantidade, unidade: material?.unidade||"",
-        };
+        });
       });
+    });
     perguntarViasEImprimir(itensEtiqueta);
   }
 
@@ -3094,7 +3188,7 @@ function abrirCompletarPendencia(prodId){
   const prod = DB.movimentos.find(m=>m.id===prodId);
   if (!prod) return;
   ITENS_PRODUZIDOS_COMPLETANDO = prodId;
-  COMPLETAR_PENDENCIA = { producaoId: prod.producaoId, pesagens:{}, confirmados:{}, materialEmPesagem:null };
+  COMPLETAR_PENDENCIA = { producaoId: prod.producaoId, pesagens:{}, confirmados:{}, materialEmPesagem:null, loteEmEdicao:{} };
   renderMain();
 }
 function fecharCompletarPendencia(){
@@ -3111,13 +3205,17 @@ function completarPendenciaHTML(prod){
   if (faltantes.length===0){
     return `<div class="sc-hint" style="margin-top:10px;">Todos os ingredientes já foram pesados para este lote.</div>`;
   }
+  const quantidadeAlvoInferida = inferirQuantidadeAlvoOriginal(mf, prod);
   const linhas = faltantes.map(ing => {
     const material = materialMap[ing.materialId];
-    const pesagem = COMPLETAR_PENDENCIA?.pesagens?.[ing.materialId];
+    const alvo = quantidadeAlvoInferida ? round3(ing.percentual/100 * quantidadeAlvoInferida) : null;
+    const alocacoes = COMPLETAR_PENDENCIA?.pesagens?.[ing.materialId] || [];
     const pesando = COMPLETAR_PENDENCIA?.materialEmPesagem === ing.materialId;
     let acaoHTML;
-    if (pesagem){
-      acaoHTML = `<span class="sc-tag tag-entrada">${icon("check",11)} Pesado: ${fmtNum(pesagem.quantidade)} ${escapeHtml(material?.unidade||"")} · Lote ${escapeHtml(pesagem.lote||"—")}</span>`;
+    if (alocacoes.length>0){
+      const total = round3(alocacoes.reduce((acc,a)=>acc+a.quantidade,0));
+      const lotesTexto = alocacoes.map(a=>`${a.lote||"—"} (${fmtNum(a.quantidade)})`).join(", ");
+      acaoHTML = `<span class="sc-tag tag-entrada">${icon("check",11)} Pesado: ${fmtNum(total)} ${escapeHtml(material?.unidade||"")} · ${escapeHtml(lotesTexto)}</span>`;
     } else if (pesando){
       acaoHTML = "";
     } else {
@@ -3127,7 +3225,7 @@ function completarPendenciaHTML(prod){
     return `<div class="sc-formpanel is-plain" style="margin-bottom:8px;">
       <div class="sc-formpanelBody" style="gap:6px;">
         <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
-          <div style="font-weight:700; color:var(--navy);">${escapeHtml(material?.nome||"—")} <span style="font-weight:400; color:var(--ink-faint); font-size:11.5px;">(${fmtNum(ing.percentual)}% da receita)</span></div>
+          <div style="font-weight:700; color:var(--navy);">${escapeHtml(material?.nome||"—")} <span style="font-weight:400; color:var(--ink-faint); font-size:11.5px;">(${fmtNum(ing.percentual)}% da receita${alvo!==null?` — alvo: ${fmtNum(alvo)} ${escapeHtml(material?.unidade||"")}`:""})</span></div>
           <div>${acaoHTML}</div>
         </div>
         ${form}
@@ -3158,22 +3256,45 @@ function pesagemPendenciaFormHTML(materialId, material){
         <div id="confirmacao_pend_erro_${materialId}"></div>
       </div>`;
   }
+  const alocacoes = COMPLETAR_PENDENCIA.pesagens[materialId] || [];
   const lotes = getLotesEmEstoque(materialId);
+  const jaAlocadoPorLote = {};
+  alocacoes.forEach(a => { jaAlocadoPorLote[a.lote] = round3((jaAlocadoPorLote[a.lote]||0) + a.quantidade); });
+  const loteEmEdicao = COMPLETAR_PENDENCIA.loteEmEdicao?.[materialId] || "";
+
+  const resumoAlocacoes = alocacoes.length>0 ? `
+    <div style="display:flex; flex-direction:column; gap:4px; width:100%;">
+      ${alocacoes.map((a,i) => `
+        <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:6px 10px;">
+          <span class="sc-hint" style="margin:0;">Lote ${escapeHtml(a.lote||"—")}: ${fmtNum(a.quantidade)} ${escapeHtml(material?.unidade||"")}</span>
+          <button class="sc-iconbtn" title="Remover" onclick="event.stopPropagation();removerAlocacaoPesagemPendencia('${materialId}', ${i})">${icon("x",12)}</button>
+        </div>`).join("")}
+    </div>` : "";
+
   const loteOptions = lotes.length===0
     ? `<option value="">Nenhum lote em estoque</option>`
-    : `<option value="">Selecione…</option>` + lotes.map(l=>`<option value="${escapeHtml(l.lote)}">${l.lote?escapeHtml(l.lote):"(sem lote)"} — saldo ${fmtNum(l.saldo)}${l.validade?` — val. ${fmtDate(l.validade)}`:""}</option>`).join("");
+    : `<option value="">Selecione o lote…</option>` + lotes.map(l=>{
+        const disponivel = round3(l.saldo - (jaAlocadoPorLote[l.lote]||0));
+        return `<option value="${escapeHtml(l.lote)}" ${loteEmEdicao===l.lote?"selected":""}>${l.lote?escapeHtml(l.lote):"(sem lote)"} — disponível ${fmtNum(disponivel)}${l.validade?` — val. ${fmtDate(l.validade)}`:""}</option>`;
+      }).join("");
   return `
     <div style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap; border-top:1px dashed var(--line); padding-top:8px;">
       ${material?.codigoBarras ? `<div class="sc-hint" style="width:100%; margin:0 0 2px;">${icon("check",12)} Material confirmado por código de barras.</div>` : `<div class="sc-hint" style="width:100%; margin:0 0 2px;">${icon("alert",12)} Este material não tem código de barras cadastrado.</div>`}
-      <label class="sc-field"><span>Peso pesado</span><input class="sc-input" type="number" min="0" step="0.001" id="pesarpend_qtd_${materialId}" value=""></label>
-      <label class="sc-field is-wide"><span>Lote do material</span><select class="sc-input" id="pesarpend_lote_${materialId}">${loteOptions}</select></label>
-      <button class="sc-btn sc-btn-primary" onclick="event.stopPropagation();confirmarPesagemPendencia('${materialId}')">${icon("check",13)}<span>Confirmar</span></button>
+      ${resumoAlocacoes}
+      <label class="sc-field is-wide"><span>Lote do material <span style="color:var(--danger);">*</span></span><select class="sc-input" id="pesarpend_lote_${materialId}" onchange="event.stopPropagation();onLotePesagemPendenciaChange('${materialId}', this.value)">${loteOptions}</select></label>
+      <label class="sc-field"><span>Peso pesado neste lote</span><input class="sc-input" type="number" min="0" step="0.001" id="pesarpend_qtd_${materialId}" value="" ${loteEmEdicao?"":"disabled"}></label>
+      <button class="sc-btn sc-btn-ghost" ${loteEmEdicao?"":"disabled"} onclick="event.stopPropagation();adicionarAlocacaoPesagemPendencia('${materialId}')">${icon("plus",13)}<span>Adicionar lote</span></button>
+      <div id="pesarpend_erro_${materialId}" style="width:100%;"></div>
       <button class="sc-btn sc-btn-ghost" onclick="event.stopPropagation();cancelarPesagemPendencia()">Cancelar</button>
-    </div>
-    <div id="pesarpend_erro_${materialId}"></div>`;
+    </div>`;
 }
 function abrirPesagemPendencia(materialId){ COMPLETAR_PENDENCIA.materialEmPesagem = materialId; renderMain(); }
 function cancelarPesagemPendencia(){ COMPLETAR_PENDENCIA.materialEmPesagem = null; renderMain(); }
+function onLotePesagemPendenciaChange(materialId, value){
+  if (!COMPLETAR_PENDENCIA.loteEmEdicao) COMPLETAR_PENDENCIA.loteEmEdicao = {};
+  COMPLETAR_PENDENCIA.loteEmEdicao[materialId] = value;
+  renderMain();
+}
 function escanearConfirmacaoPendencia(materialId){
   openScanner((text) => {
     const material = DB.materiais.find(m=>m.id===materialId);
@@ -3189,19 +3310,43 @@ function escanearConfirmacaoPendencia(materialId){
     }
   });
 }
-function confirmarPesagemPendencia(materialId){
-  const qtd = Number(document.getElementById(`pesarpend_qtd_${materialId}`).value);
-  const lote = document.getElementById(`pesarpend_lote_${materialId}`).value;
+function adicionarAlocacaoPesagemPendencia(materialId){
   const errBox = document.getElementById(`pesarpend_erro_${materialId}`);
+  const lote = COMPLETAR_PENDENCIA.loteEmEdicao?.[materialId] || "";
+  const qtd = Number(document.getElementById(`pesarpend_qtd_${materialId}`).value);
+  if (!lote){ errBox.innerHTML = `<div class="sc-error">${icon("alert",14)} Selecione o lote antes de informar o peso.</div>`; return; }
   if (!qtd || qtd<=0){ errBox.innerHTML = `<div class="sc-error">${icon("alert",14)} Informe um peso maior que zero.</div>`; return; }
   const lotes = getLotesEmEstoque(materialId);
-  if (lotes.length===0){ errBox.innerHTML = `<div class="sc-error">${icon("alert",14)} Nenhum lote em estoque para este material — registre uma entrada em Movimentações antes de pesar.</div>`; return; }
-  if (!lote){ errBox.innerHTML = `<div class="sc-error">${icon("alert",14)} Selecione o lote do material.</div>`; return; }
   const loteInfo = lotes.find(l=>l.lote===lote);
-  if (loteInfo && qtd > loteInfo.saldo){ errBox.innerHTML = `<div class="sc-error">${icon("alert",14)} Peso maior que o saldo disponível deste lote (${fmtNum(loteInfo.saldo)}).</div>`; return; }
-  COMPLETAR_PENDENCIA.pesagens[materialId] = { quantidade: qtd, lote, validade: loteInfo?.validade||"" };
+  const alocacoesAtuais = COMPLETAR_PENDENCIA.pesagens[materialId] || [];
+  const jaAlocado = round3(alocacoesAtuais.filter(a=>a.lote===lote).reduce((acc,a)=>acc+a.quantidade,0));
+  const disponivel = loteInfo ? round3(loteInfo.saldo - jaAlocado) : 0;
+  if (!loteInfo || qtd > disponivel){
+    errBox.innerHTML = `<div class="sc-error">${icon("alert",14)} O lote "${escapeHtml(lote)}" só tem ${fmtNum(disponivel)} disponível. Ajuste o peso ou adicione outro lote depois.</div>`;
+    return;
+  }
+  if (!COMPLETAR_PENDENCIA.pesagens[materialId]) COMPLETAR_PENDENCIA.pesagens[materialId] = [];
+  COMPLETAR_PENDENCIA.pesagens[materialId].push({ quantidade: qtd, lote, validade: loteInfo.validade||"" });
+  if (COMPLETAR_PENDENCIA.loteEmEdicao) delete COMPLETAR_PENDENCIA.loteEmEdicao[materialId];
   COMPLETAR_PENDENCIA.materialEmPesagem = null;
   renderMain();
+}
+function removerAlocacaoPesagemPendencia(materialId, index){
+  if (!COMPLETAR_PENDENCIA.pesagens[materialId]) return;
+  COMPLETAR_PENDENCIA.pesagens[materialId].splice(index, 1);
+  if (COMPLETAR_PENDENCIA.pesagens[materialId].length===0) delete COMPLETAR_PENDENCIA.pesagens[materialId];
+  renderMain();
+}
+function inferirQuantidadeAlvoOriginal(mf, prod){
+  const tipoMap = mapBy(DB.tipos);
+  const consumosExistentes = DB.movimentos.filter(m=>m.producaoId===prod.producaoId && tipoMap[m.tipoMovimentoId]?.especial==="producao_consumo");
+  const somaPorIngrediente = {};
+  consumosExistentes.forEach(c => { somaPorIngrediente[c.materialId] = round3((somaPorIngrediente[c.materialId]||0) + c.quantidade); });
+  for (const ing of mf.ingredientes){
+    const somaExistente = somaPorIngrediente[ing.materialId];
+    if (somaExistente && ing.percentual>0) return round3(somaExistente / (ing.percentual/100));
+  }
+  return 0;
 }
 function registrarPesagensPendentes(prodId){
   const errBox = document.getElementById("completar_erro");
@@ -3214,11 +3359,29 @@ function registrarPesagensPendentes(prodId){
 
   const materialMap = mapBy(DB.materiais);
   for (const materialId of pesadosIds){
-    const pesagem = COMPLETAR_PENDENCIA.pesagens[materialId];
+    const alocacoes = COMPLETAR_PENDENCIA.pesagens[materialId];
     const lotes = getLotesEmEstoque(materialId);
-    const loteInfo = lotes.find(l=>l.lote===pesagem.lote);
-    if (!loteInfo || pesagem.quantidade > loteInfo.saldo){
-      if (errBox) errBox.innerHTML = `<div class="sc-error">${icon("alert",14)} O lote "${escapeHtml(pesagem.lote)}" de "${escapeHtml(materialMap[materialId]?.nome||"?")}" não tem mais saldo suficiente. Repese este item.</div>`;
+    const somaPorLote = {};
+    alocacoes.forEach(a => { somaPorLote[a.lote] = round3((somaPorLote[a.lote]||0) + a.quantidade); });
+    for (const [lote, soma] of Object.entries(somaPorLote)){
+      const loteInfo = lotes.find(l=>l.lote===lote);
+      if (!loteInfo || soma > loteInfo.saldo){
+        if (errBox) errBox.innerHTML = `<div class="sc-error">${icon("alert",14)} O lote "${escapeHtml(lote)}" de "${escapeHtml(materialMap[materialId]?.nome||"?")}" não tem mais saldo suficiente. Repese este item.</div>`;
+        return;
+      }
+    }
+  }
+
+  const quantidadeAlvoInferida = inferirQuantidadeAlvoOriginal(mf, prod);
+  for (const materialId of pesadosIds){
+    const ing = mf.ingredientes.find(i=>i.materialId===materialId);
+    if (!ing || !quantidadeAlvoInferida) continue;
+    const alvo = round3(ing.percentual/100 * quantidadeAlvoInferida);
+    const totalPesado = round3(COMPLETAR_PENDENCIA.pesagens[materialId].reduce((acc,a)=>acc+a.quantidade,0));
+    const material = materialMap[materialId];
+    const resultado = validarErroPesagem(totalPesado, alvo, material?.unidade);
+    if (resultado.bloqueado){
+      alert(`${escapeHtml(material?.nome||"Item")}: ${resultado.mensagem}`);
       return;
     }
   }
@@ -3233,18 +3396,20 @@ function registrarPesagensPendentes(prodId){
   const novosRegistros = [];
   let extraTotal = 0;
   pesadosIds.forEach(materialId => {
-    const pesagem = COMPLETAR_PENDENCIA.pesagens[materialId];
-    extraTotal = round3(extraTotal + pesagem.quantidade);
-    novosRegistros.push({
-      id: uid(), producaoId: prod.producaoId, misturaFinaId: mf.id,
-      data: dataMov, materialId, tipoMovimentoId: tipoConsumoId,
-      setorId: prod.setorId, quantidade: pesagem.quantidade, delta: -pesagem.quantidade,
-      lote: pesagem.lote, validade: pesagem.validade||"", documento: prod.documento||"",
-      observacao: "Pesagem pendente completada posteriormente.",
-      escopo: prod.escopo, colaboradorId: "",
-      assinaturaOperador: null, assinadoEmOperador: null,
-      assinatura: null, assinadoEm: null,
-      criadoEm: agora,
+    const alocacoes = COMPLETAR_PENDENCIA.pesagens[materialId];
+    alocacoes.forEach(pesagem => {
+      extraTotal = round3(extraTotal + pesagem.quantidade);
+      novosRegistros.push({
+        id: uid(), producaoId: prod.producaoId, misturaFinaId: mf.id,
+        data: dataMov, materialId, tipoMovimentoId: tipoConsumoId,
+        setorId: prod.setorId, quantidade: pesagem.quantidade, delta: -pesagem.quantidade,
+        lote: pesagem.lote, validade: pesagem.validade||"", documento: prod.documento||"",
+        observacao: "Pesagem pendente completada posteriormente.",
+        escopo: prod.escopo, colaboradorId: "",
+        assinaturaOperador: null, assinadoEmOperador: null,
+        assinatura: null, assinadoEm: null,
+        criadoEm: agora,
+      });
     });
   });
   DB.movimentos = [...novosRegistros, ...DB.movimentos];
