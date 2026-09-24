@@ -442,6 +442,13 @@ const MATERIAIS_PADRAO_MISTURA_FINA = [
   ["5729", "MICROCAPS L. RHAMNOSUS PRO"],
   ["5877", "MICROCAPS B. LACTIS ULTRA"],
   ["5878", "MICROCAPS PARACASEI PRO"],
+  ["442", "AMYL-DUO"],
+  ["444", "AMYL-STD"],
+  ["469", "CORANTE CARAMELO"],
+  ["472", "DEXTROSE ANIDRA"],
+  ["505", "OLEO DE PEIXE (DHA 12% E EPA 6%)"],
+  ["1500", "SULFATO DE CONDROITINA"],
+  ["5728", "MICROCAPS FAECIUM CORE"],
 ];
 const MISTURAS_FINAS_PADRAO_BIOSYN = [
   { nome: "NEO FLORA", codigo: "560", ingredientes: [["CMC - CARBOXIMETILCELULOSE", 8.112], ["PAREDE CELULAR (MANANAS)", 7.267], ["INOSITOL", 4.141], ["INULINA", 2.197], ["MICROCAPS BOULARDII CORE", 1.775], ["BETA GLUCANA", 1.208], ["MICROCAPS CEREVISIAE PRO", 9.042], ["MICROCAPS ACIDOPHILUS PRO", 0.008], ["MICROCAPS THERMOPHILUS CORE", 0.085], ["MICROCAPS BIFIDUM PRO", 0.254], ["GOMA ARÁBICA", 40.561], ["CORANTE AZUL BRILHANTE", 25.351]] },
@@ -534,6 +541,132 @@ function corrigirUnidadeCategoriaPadraoBiosyn(){
   });
   if (misturasAlteradas) persist("misturasFinas");
 }
+const INVENTARIO_INICIAL_MF = [
+  ["430", "260314N312", 47269.4],
+  ["433", "1250770040", 29809.12],
+  ["434", "40900365", 20800.0],
+  ["434", "508000181", 6900.0],
+  ["435", "B2411023", 11389.59],
+  ["436", "A508419", 39700.0],
+  ["438", "20250703-E", 26930.64],
+  ["447", "Q125242", 47979.82],
+  ["451", "182505", 18800.0],
+  ["451", "182507", 25000.0],
+  ["454", "1004", 36378.88],
+  ["455", "260204", 1700.0],
+  ["456", "NPT-0125/036", 3920.0],
+  ["457", "25C86", 15190.0],
+  ["461", "03/2026", 77500.0],
+  ["462", "F251001A", 5827.63],
+  ["463", "HC60Y2508019", 48209.72],
+  ["464", "890000922881", 6588.59],
+  ["464", "KCLF07B", 45009.6],
+  ["465", "NPT.0224/245", 3600.0],
+  ["466", "NPT.0425/539", 4400.0],
+  ["470", "97760", 191.6],
+  ["475", "0925053034", 51565.4],
+  ["476", "CE25011004", 28669.4],
+  ["477", "457/2025", 13152.02],
+  ["480", "20240108036", 8629.3],
+  ["481", "109801", 13400.0],
+  ["482", "108357", 15879.82],
+  ["482", "1241214077", 50031.08],
+  ["486", "873031", 8298.12],
+  ["489", "202403538", 15106.2],
+  ["490", "2024427399", 8900.0],
+  ["491", "012-054/25", 2100.0],
+  ["491", "012-123/25", 4895.9],
+  ["493", "202508022", 11820.44],
+  ["494", "202408091", 6291.8],
+  ["495", "6240829080", 8950.04],
+  ["496", "XK24103175", 40457.08],
+  ["497", "DTP250865M", 54400.0],
+  ["500", "00A2409100", 24878.4],
+  ["502", "M250945K", 83046.2],
+  ["503", "107877", 8500.0],
+  ["512", "950341", 24998.08],
+  ["514", "Q125159", 110477.96],
+  ["515", "240714F092", 23879.55],
+  ["521", "1 20250107 019", 36995.92],
+  ["524", "101125", 0.006],
+  ["525", "112-064/25", 19090.2],
+  ["526", "17383", 19251.0],
+  ["528", "872069", 19782.03],
+  ["529", "K2412041", 21796.81],
+  ["531", "129758", 8004.32],
+  ["532", "22515302B", 43087.71],
+  ["533", "001/26", 4100.0],
+  ["533", "005/26", 13337.18],
+  ["533", "006/26", 98721.47],
+  ["537", "1312408008", 11289.8],
+  ["537", "24082004", 918.0],
+  ["538", "012503A078", 5004.3],
+  ["539", "MN2508007", 49500.0],
+  ["1502", "872295", 270.55],
+  ["1502", "872296", 8.0],
+  ["4102", "001/26", 28474.4],
+  ["4103", "001/26", 4800.0],
+  ["4104", "001/26", 15592.0],
+  ["4105", "001/26", 42811.69],
+  ["4107", "001/26", 2000.0],
+  ["4108", "001/26", 1611.97],
+  ["4274", "001/25", 4826.0],
+  ["4297", "001/25", 2670.0],
+  ["4318", "001/26", 500.0],
+  ["4319", "001/26", 500.0],
+  ["4383", "Q325106", 20350.0],
+  ["4398", "001/26", 17436.0],
+  ["4457", "003/25", 105.17],
+  ["4512", "001/26", 54562.32],
+  ["5729", "001/26", 12688.0],
+  ["5878", "001/26", 2832.0],
+  ["442", "003/25", 3550.92],
+  ["444", "003/25", 394.0],
+  ["444", "004/25", 4668.0],
+  ["469", "1125/1849", 5160.0],
+  ["472", "212408303", 8200.0],
+  ["505", "100525 OS", 18016.0],
+  ["1500", "SN-031125", 23019.61],
+  ["5728", "001/26", 1000.0],
+];
+function garantirInventarioInicialMF(){
+  const tipoEntrada = DB.tipos.find(t => t.nome==="Entrada por Recebimento Almox.");
+  if (!tipoEntrada) return;
+  const setorBase = setorHomeDaSala("mistura_fina") || DB.setores[0];
+  const materialPorCodigo = {};
+  DB.materiais.forEach(m => { materialPorCodigo[String(m.codigo).trim()] = m; });
+
+  const agora = new Date().toISOString();
+  const dataInventario = todayISO();
+  const novosRegistros = [];
+  const deltaPorMaterial = {};
+
+  INVENTARIO_INICIAL_MF.forEach(([codigo, lote, quantidade]) => {
+    const material = materialPorCodigo[codigo];
+    if (!material) return;
+    // não duplica: se já existe uma entrada de inventário para este material+lote, pula
+    const jaExiste = DB.movimentos.some(m => m.materialId===material.id && m.lote===lote && m.inventarioInicial);
+    if (jaExiste) return;
+    novosRegistros.push({
+      id: uid(), producaoId: null, misturaFinaId: null,
+      data: dataInventario, materialId: material.id, tipoMovimentoId: tipoEntrada.id,
+      setorId: setorBase?.id || "", quantidade, delta: quantidade,
+      lote, validade: "", documento: "", observacao: "Inventário inicial.",
+      escopo: [...ALL_ROOM_IDS], colaboradorId: "",
+      assinaturaOperador: null, assinadoEmOperador: null,
+      assinatura: null, assinadoEm: null,
+      inventarioInicial: true,
+      criadoEm: agora,
+    });
+    deltaPorMaterial[material.id] = round3((deltaPorMaterial[material.id]||0) + quantidade);
+  });
+
+  if (novosRegistros.length===0) return;
+  DB.movimentos = [...novosRegistros, ...DB.movimentos];
+  DB.materiais = DB.materiais.map(m => deltaPorMaterial[m.id] ? {...m, estoqueAtual: round3((m.estoqueAtual||0)+deltaPorMaterial[m.id])} : m);
+  persist("materiais");
+  persist("movimentos");
+}
 function seedTipos(){ return [
   { id: uid(), nome:"Entrada por Recebimento Almox.", efeito:"entrada", escopo:[...ALL_ROOM_IDS] },
   { id: uid(), nome:"Entrada por Recebimento Produção", efeito:"entrada", escopo:[...ALL_ROOM_IDS] },
@@ -614,6 +747,21 @@ async function loadAll(){
   if (!unidadeCategoriaCorrecaoMarcador){
     corrigirUnidadeCategoriaPadraoBiosyn();
     storageSet(`${STORAGE_PREFIX}:materiais_padrao_unidade_g_v1`, "1");
+  }
+
+  // migração: carrega o inventário inicial como entradas por recebimento do almoxarifado
+  const inventarioInicialMarcador = await storageGet(`${STORAGE_PREFIX}:inventario_inicial_mf_v1`);
+  if (!inventarioInicialMarcador){
+    garantirInventarioInicialMF();
+    storageSet(`${STORAGE_PREFIX}:inventario_inicial_mf_v1`, "1");
+  }
+
+  // migração: complementa os 7 materiais que faltavam no cadastro e suas entradas de inventário
+  const inventarioComplementoMarcador = await storageGet(`${STORAGE_PREFIX}:inventario_complemento_7_itens_v1`);
+  if (!inventarioComplementoMarcador){
+    garantirMateriaisEMisturasFinasPadrao();
+    garantirInventarioInicialMF();
+    storageSet(`${STORAGE_PREFIX}:inventario_complemento_7_itens_v1`, "1");
   }
 
   await tentarRestaurarArquivoDados();
