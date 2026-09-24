@@ -248,6 +248,12 @@ function roomLabel(room){
   if (r) return `Sala de ${r.label}`;
   return "Visão Geral — Todas as Salas";
 }
+function isSemiacabado(material){
+  if (!material) return false;
+  if (material.categoria === "Semiacabado") return true;
+  // um material referenciado como produto de alguma mistura fina também é semiacabado
+  return DB.misturasFinas.some(mf => mf.materialProduzidoId === material.id);
+}
 function setorHomeDaSala(roomId){
   if (!roomId || roomId==="todas") return null;
   return DB.setores.find(s => s.salaBase === roomId) || null;
@@ -1487,7 +1493,7 @@ function shellHTML(){
 }
 
 function sidebarHTML(){
-  const materiaisNaSala = DB.materiais.filter(m => inRoom(m, ROOM));
+  const materiaisNaSala = DB.materiais.filter(m => inRoom(m, ROOM) && !isSemiacabado(m));
   const alertCount = materiaisNaSala.filter(m => (m.estoqueAtual||0) <= (m.estoqueMinimo||0)).length;
   const tipoMapSidebar = mapBy(DB.tipos);
   const pendentesProducao = DB.movimentos.filter(m => inRoom(m, ROOM) && tipoMapSidebar[m.tipoMovimentoId]?.especial==="producao_entrada" && !m.assinatura && !m.anulado).length;
@@ -1601,7 +1607,7 @@ function efeitoTagHTML(tipo){
 
 /* ================================ PAINEL ================================ */
 function painelHTML(){
-  const materiais = DB.materiais.filter(m => inRoom(m, ROOM));
+  const materiais = DB.materiais.filter(m => inRoom(m, ROOM) && !isSemiacabado(m));
   const movimentos = DB.movimentos.filter(m => inRoom(m, ROOM));
   const setores = DB.setores.filter(s => inRoom(s, ROOM));
   const tipoMapGeral = mapBy(DB.tipos);
@@ -1713,6 +1719,7 @@ function filterMateriaisList(){
   const categoria = document.getElementById("materiaisFiltroCategoria")?.value || "";
   const ordenar = document.getElementById("materiaisOrdenar")?.value || "nome_asc";
   let lista = DB.materiais.filter(m => {
+    if (isSemiacabado(m)) return false;
     if (categoria && m.categoria !== categoria) return false;
     return `${m.codigo} ${m.codigoBarras} ${m.nome} ${m.categoria}`.toLowerCase().includes(q);
   });
@@ -4464,7 +4471,7 @@ function downloadExcel(rows, sheetName, filename){
   XLSX.writeFile(wb, filename);
 }
 function estoquesHTML(){
-  const materiaisNaSala = DB.materiais.filter(m => inRoom(m, ROOM));
+  const materiaisNaSala = DB.materiais.filter(m => inRoom(m, ROOM) && !isSemiacabado(m));
   const abaixoMinimo = materiaisNaSala.filter(m => (m.estoqueAtual||0) <= (m.estoqueMinimo||0));
   const statusValidadePorMaterial = materiaisNaSala.map(m => piorValidadeMaterial(m.id)).filter(Boolean);
   const contarStatus = (status) => statusValidadePorMaterial.filter(c=>c.status===status).length;
@@ -4526,7 +4533,7 @@ function filterEstoqueList(materiaisNaSala){
 }
 function renderEstoqueTable(){
   const wrap = document.getElementById("estoqueTableWrap");
-  const materiaisNaSala = DB.materiais.filter(m => inRoom(m, ROOM));
+  const materiaisNaSala = DB.materiais.filter(m => inRoom(m, ROOM) && !isSemiacabado(m));
   if (wrap) wrap.innerHTML = estoqueTableHTML(filterEstoqueList(materiaisNaSala));
 }
 function relMovimentacoesHTML(){
@@ -4595,12 +4602,6 @@ function toggleEstoqueDetalhe(materialId){
   else ESTOQUE_EXPANDIDO.add(materialId);
   renderEstoqueTable();
 }
-function renderEstoqueTable(){
-  const wrap = document.getElementById("estoqueTableWrap");
-  if (!wrap) return;
-  const materiaisNaSala = DB.materiais.filter(m => inRoom(m, ROOM));
-  wrap.innerHTML = estoqueTableHTML(materiaisNaSala);
-}
 function filterMovs(){
   const de = document.getElementById("rf_de")?.value || "";
   const ate = document.getElementById("rf_ate")?.value || "";
@@ -4652,7 +4653,7 @@ function renderRelatorioMov(){
   if (wrap) wrap.innerHTML = movTableHTML(filterMovs());
 }
 function exportEstoqueExcel(){
-  const materiaisNaSala = DB.materiais.filter(m => inRoom(m, ROOM));
+  const materiaisNaSala = DB.materiais.filter(m => inRoom(m, ROOM) && !isSemiacabado(m));
   const rows = materiaisNaSala.map(m => ({
     "Código": m.codigo || "",
     "Código de Barras": m.codigoBarras || "",
