@@ -248,6 +248,46 @@ function roomLabel(room){
   if (r) return `Sala de ${r.label}`;
   return "Visão Geral — Todas as Salas";
 }
+/* ---------- seletor com busca (combobox) ----------
+   Renderiza um campo de texto com sugestões filtradas conforme a digitação e mantém um input
+   escondido com o MESMO id do antigo <select>, para que todas as leituras de valor continuem iguais. */
+const COMBO_REG = {};
+function comboHTML(id, items, selectedValue, opts){
+  opts = opts || {};
+  COMBO_REG[id] = { items, onChange: opts.onChange || null };
+  const sel = items.find(i => String(i.value) === String(selectedValue==null?"":selectedValue));
+  const listId = "dl_" + String(id).replace(/[^A-Za-z0-9_]/g, "_");
+  const estilo = opts.style ? ` style="${opts.style}"` : "";
+  return `<input class="sc-input" id="${id}__q" list="${listId}" value="${escapeHtml(sel?sel.label:"")}" placeholder="${escapeHtml(opts.placeholder||"Digite para buscar…")}" oninput="comboOnInput('${id}')" onblur="comboOnBlur('${id}')" autocomplete="off"${estilo}>
+<datalist id="${listId}">${items.map(i=>`<option value="${escapeHtml(i.label)}"></option>`).join("")}</datalist>
+<input type="hidden" id="${id}" value="${escapeHtml(sel?String(sel.value):"")}">`;
+}
+function comboOnInput(id){
+  const reg = COMBO_REG[id];
+  if (!reg) return;
+  const qEl = document.getElementById(id+"__q");
+  const hidden = document.getElementById(id);
+  if (!qEl || !hidden) return;
+  const texto = (qEl.value||"").trim();
+  const achado = reg.items.find(i => i.label.toLowerCase() === texto.toLowerCase());
+  let novo;
+  if (achado) novo = String(achado.value);
+  else if (texto === "") novo = "";
+  else return; // ainda digitando: não descarta a seleção atual no meio da busca
+  if (hidden.value === novo) return;
+  hidden.value = novo;
+  if (reg.onChange) reg.onChange(novo);
+}
+function comboOnBlur(id){
+  const reg = COMBO_REG[id];
+  if (!reg) return;
+  const qEl = document.getElementById(id+"__q");
+  const hidden = document.getElementById(id);
+  if (!qEl || !hidden) return;
+  // ao sair do campo, mostra sempre o rótulo do item realmente selecionado (evita texto solto sem seleção)
+  const atual = reg.items.find(i => String(i.value) === String(hidden.value));
+  qEl.value = atual ? atual.label : "";
+}
 function isSemiacabado(material){
   if (!material) return false;
   if (material.categoria === "Semiacabado") return true;
@@ -548,93 +588,110 @@ function corrigirUnidadeCategoriaPadraoBiosyn(){
   if (misturasAlteradas) persist("misturasFinas");
 }
 const INVENTARIO_INICIAL_MF = [
-  ["430", "260314N312", 47269.4],
-  ["433", "1250770040", 29809.12],
-  ["434", "40900365", 20800.0],
-  ["434", "508000181", 6900.0],
-  ["435", "B2411023", 11389.59],
-  ["436", "A508419", 39700.0],
-  ["438", "20250703-E", 26930.64],
-  ["447", "Q125242", 47979.82],
-  ["451", "182505", 18800.0],
-  ["451", "182507", 25000.0],
-  ["454", "1004", 36378.88],
-  ["455", "260204", 1700.0],
-  ["456", "NPT-0125/036", 3920.0],
-  ["457", "25C86", 15190.0],
-  ["461", "03/2026", 77500.0],
-  ["462", "F251001A", 5827.63],
-  ["463", "HC60Y2508019", 48209.72],
-  ["464", "890000922881", 6588.59],
-  ["464", "KCLF07B", 45009.6],
-  ["465", "NPT.0224/245", 3600.0],
-  ["466", "NPT.0425/539", 4400.0],
-  ["470", "97760", 191.6],
-  ["475", "0925053034", 51565.4],
-  ["476", "CE25011004", 28669.4],
-  ["477", "457/2025", 13152.02],
-  ["480", "20240108036", 8629.3],
-  ["481", "109801", 13400.0],
-  ["482", "108357", 15879.82],
-  ["482", "1241214077", 50031.08],
-  ["486", "873031", 8298.12],
-  ["489", "202403538", 15106.2],
-  ["490", "2024427399", 8900.0],
-  ["491", "012-054/25", 2100.0],
-  ["491", "012-123/25", 4895.9],
-  ["493", "202508022", 11820.44],
-  ["494", "202408091", 6291.8],
-  ["495", "6240829080", 8950.04],
-  ["496", "XK24103175", 40457.08],
-  ["497", "DTP250865M", 54400.0],
-  ["500", "00A2409100", 24878.4],
-  ["502", "M250945K", 83046.2],
-  ["503", "107877", 8500.0],
-  ["512", "950341", 24998.08],
-  ["514", "Q125159", 110477.96],
-  ["515", "240714F092", 23879.55],
-  ["521", "1 20250107 019", 36995.92],
-  ["524", "101125", 0.006],
-  ["525", "112-064/25", 19090.2],
-  ["526", "17383", 19251.0],
-  ["528", "872069", 19782.03],
-  ["529", "K2412041", 21796.81],
-  ["531", "129758", 8004.32],
-  ["532", "22515302B", 43087.71],
-  ["533", "001/26", 4100.0],
-  ["533", "005/26", 13337.18],
-  ["533", "006/26", 98721.47],
-  ["537", "1312408008", 11289.8],
-  ["537", "24082004", 918.0],
-  ["538", "012503A078", 5004.3],
-  ["539", "MN2508007", 49500.0],
-  ["1502", "872295", 270.55],
-  ["1502", "872296", 8.0],
-  ["4102", "001/26", 28474.4],
-  ["4103", "001/26", 4800.0],
-  ["4104", "001/26", 15592.0],
-  ["4105", "001/26", 42811.69],
-  ["4107", "001/26", 2000.0],
-  ["4108", "001/26", 1611.97],
-  ["4274", "001/25", 4826.0],
-  ["4297", "001/25", 2670.0],
-  ["4318", "001/26", 500.0],
-  ["4319", "001/26", 500.0],
-  ["4383", "Q325106", 20350.0],
-  ["4398", "001/26", 17436.0],
-  ["4457", "003/25", 105.17],
-  ["4512", "001/26", 54562.32],
-  ["5729", "001/26", 12688.0],
-  ["5878", "001/26", 2832.0],
-  ["442", "003/25", 3550.92],
-  ["444", "003/25", 394.0],
-  ["444", "004/25", 4668.0],
-  ["469", "1125/1849", 5160.0],
-  ["472", "212408303", 8200.0],
-  ["505", "100525 OS", 18016.0],
-  ["1500", "SN-031125", 23019.61],
-  ["5728", "001/26", 1000.0],
+  ["430", "260314N312", 47251.04, "2027-03-13"],
+  ["433", "1250770040", 29809.12, "2029-07-05"],
+  ["434", "40900365", 20800.0, "2027-09-20"],
+  ["434", "508000181", 6900.0, "2028-08-13"],
+  ["435", "B2411023", 11300.76, "2027-11-25"],
+  ["436", "AS08419", 39700.0, "2027-09-07"],
+  ["438", "20250703-E", 26400.0, "2028-07-02"],
+  ["444", "003/25", 394.0, "2027-05-21"],
+  ["447", "Q125242", 45800.82, "2027-10-10"],
+  ["451", "182505", 18800.0, "2027-05-29"],
+  ["451", "182507", 25000.0, "2027-11-04"],
+  ["454", "1004", 31600.88, "2027-05-19"],
+  ["455", "260204", 700.0, "2027-02-04"],
+  ["456", "NPT-0125/036", 3350.0, "2027-01-01"],
+  ["457", "25C86", 15160.0, "2027-03-04"],
+  ["461", "03/2026", 76500.0, "2028-03-04"],
+  ["462", "F251001A", 5344.03, "2027-10-17"],
+  ["463", "HC60Y2508019", 47370.84, "2027-08-13"],
+  ["464", "890000922881", 4600.59, "2027-08-29"],
+  ["464", "KCLF07B", 41900.6, "2027-06-01"],
+  ["465", "NPT.0224/245", 3600.0, "2027-02-01"],
+  ["466", "NPT.0425/539", 4400.0, "2028-04-01"],
+  ["469", "1125/1849", 6600.0, "2026-11-01"],
+  ["470", "97760", 2183.6, "2029-06-04"],
+  ["472", "212408303", 8200.0, "2026-08-10"],
+  ["475", "0925053034", 51565.4, "2028-05-16"],
+  ["476", "CE25011004", 28651.04, "2027-01-03"],
+  ["477", "457/2025", 11900.02, "2027-03-17"],
+  ["480", "20240108036", 6683.23, "2027-01-07"],
+  ["481", "109801", 13100.0, "2028-08-20"],
+  ["482", "108357", 15879.82, "2027-07-10"],
+  ["482", "1241214077", 32540.6, "2026-12-13"],
+  ["486", "873031", 9030.0, "2027-04-30"],
+  ["489", "202403538", 15059.85, "2027-08-08"],
+  ["490", "2024427399", 8900.0, "2028-10-16"],
+  ["491", "012-054/25", 2000.0, "2029-03-31"],
+  ["491", "012-123/25", 4893.44, "2029-07-30"],
+  ["493", "202508022", 11800.24, "2028-08-01"],
+  ["494", "202408091", 9500.25, "2027-08-08"],
+  ["495", "6240829080", 7350.04, "2027-08-01"],
+  ["496", "XK24103175", 40457.08, "2027-10-20"],
+  ["497", "DTP250865M", 54400.0, "2027-08-20"],
+  ["500", "00A2409100", 24878.4, "2026-10-01"],
+  ["502", "M250945K", 75346.2, "2027-09-11"],
+  ["503", "107877", 7800.0, "2027-01-30"],
+  ["505", "100525 OS", 18016.0, ""],
+  ["512", "950341", 24998.08, "2029-05-18"],
+  ["514", "Q125159", 106023.96, "2027-09-13"],
+  ["515", "240714F092", 23800.31, "2027-07-13"],
+  ["521", "1 20250107 019", 36983.68, "2027-01-06"],
+  ["524", "230426", 22050.0, "2028-04-23"],
+  ["525", "112-064/25", 19089.6, "2029-07-30"],
+  ["526", "17383", 17304.65, "2026-11-02"],
+  ["529", "K2412041", 20900.81, "2026-12-13"],
+  ["531", "129758", 7704.44, "2028-02-27"],
+  ["532", "22515302B", 43074.47, "2028-06-01"],
+  ["533", "001/26", 4100.0, "2028-03-20"],
+  ["533", "006/26", 10550.47, "2028-08-03"],
+  ["537", "22428802", 25000.0, "2026-10-13"],
+  ["538", "012503A078", 4204.3, "2028-03-19"],
+  ["539", "MN2508007", 49500.0, "2028-08-02"],
+  ["1500", "SN-031125", 22500.61, "2028-03-11"],
+  ["1502", "872296", 24036.21, "2029-09-30"],
+  ["4102", "001/26", 28190.4, "2028-04-24"],
+  ["4103", "001/26", 4400.0, "2028-03-10"],
+  ["4104", "001/26", 17442.0, "2028-06-01"],
+  ["4105", "001/26", 42811.23, "2028-06-01"],
+  ["4106", "001/26", 4900.0, "2028-03-10"],
+  ["4106", "004/25", 4668.0, "2027-08-04"],
+  ["4107", "001/26", 2000.0, "2028-06-01"],
+  ["4108", "001/26", 1060.97, "2028-06-01"],
+  ["4109", "001/26", 16860.0, "2028-03-10"],
+  ["4109", "003/25", 3490.92, "2027-08-04"],
+  ["4274", "001/25", 3826.0, "2027-08-04"],
+  ["4274", "001/26", 3078.0, "2028-06-03"],
+  ["4297", "001/25", 2670.0, "2027-08-11"],
+  ["4297", "001/26", 2202.0, "2028-06-03"],
+  ["4318", "001/26", 580.0, "2028-04-24"],
+  ["4319", "001/26", 580.0, "2028-04-24"],
+  ["4383", "Q325106", 12000.23, "2027-05-13"],
+  ["4398", "001/26", 17436.0, "2028-05-07"],
+  ["4457", "003/25", 5.17, "2027-10-02"],
+  ["4458", "001/26", 5980.0, "2028-04-23"],
+  ["4458", "003/25", 660.0, "2027-10-02"],
+  ["4512", "001/26", 54160.32, "2028-04-27"],
+  ["5728", "001/26", 1000.0, "2028-06-03"],
+  ["5729", "001/26", 12688.0, "2028-05-11"],
+  ["5877", "001/26", 9880.0, "2028-06-18"],
+  ["5878", "001/26", 2832.0, "2028-06-04"],
 ];
+function recarregarInventarioInicialMF(){
+  // remove os lançamentos do inventário anterior, revertendo o efeito no estoque,
+  // para então recarregar a versão atualizada (quantidades revisadas + validades)
+  const antigos = DB.movimentos.filter(m => m.inventarioInicial);
+  if (antigos.length > 0){
+    const deltaPorMaterial = {};
+    antigos.forEach(m => { if (m.delta) deltaPorMaterial[m.materialId] = round3((deltaPorMaterial[m.materialId]||0) - m.delta); });
+    DB.materiais = DB.materiais.map(m => deltaPorMaterial[m.id] ? {...m, estoqueAtual: round3((m.estoqueAtual||0)+deltaPorMaterial[m.id])} : m);
+    DB.movimentos = DB.movimentos.filter(m => !m.inventarioInicial);
+    persist("materiais");
+    persist("movimentos");
+  }
+  garantirInventarioInicialMF();
+}
 function garantirInventarioInicialMF(){
   const tipoEntrada = DB.tipos.find(t => t.nome==="Entrada por Recebimento Almox.");
   if (!tipoEntrada) return;
@@ -647,7 +704,7 @@ function garantirInventarioInicialMF(){
   const novosRegistros = [];
   const deltaPorMaterial = {};
 
-  INVENTARIO_INICIAL_MF.forEach(([codigo, lote, quantidade]) => {
+  INVENTARIO_INICIAL_MF.forEach(([codigo, lote, quantidade, validade]) => {
     const material = materialPorCodigo[codigo];
     if (!material) return;
     // não duplica: se já existe uma entrada de inventário para este material+lote, pula
@@ -657,7 +714,7 @@ function garantirInventarioInicialMF(){
       id: uid(), producaoId: null, misturaFinaId: null,
       data: dataInventario, materialId: material.id, tipoMovimentoId: tipoEntrada.id,
       setorId: setorBase?.id || "", quantidade, delta: quantidade,
-      lote, validade: "", documento: "", observacao: "Inventário inicial.",
+      lote, validade: validade || "", documento: "", observacao: "Inventário inicial.",
       escopo: [...ALL_ROOM_IDS], colaboradorId: "",
       assinaturaOperador: null, assinadoEmOperador: null,
       assinatura: null, assinadoEm: null,
@@ -701,6 +758,7 @@ let PRODUCAO_SESSAO = null;
 let PESAGEM_MODO = "mistura";
 let PESANDO_MATERIAL_ID = null;
 let ITENS_PRODUZIDOS_EXPANDIDO = new Set();
+let MOV_EDITANDO_ID = null;
 let ITENS_PRODUZIDOS_MODO = "mistura"; // "mistura" | "individual"
 let PI_FILTRO_DE = "";
 let PI_FILTRO_ATE = "";
@@ -760,6 +818,13 @@ async function loadAll(){
   if (!inventarioInicialMarcador){
     garantirInventarioInicialMF();
     storageSet(`${STORAGE_PREFIX}:inventario_inicial_mf_v1`, "1");
+  }
+
+  // migração: recarrega o inventário com as quantidades revisadas e as datas de validade
+  const inventarioV2Marcador = await storageGet(`${STORAGE_PREFIX}:inventario_mf_validades_v2`);
+  if (!inventarioV2Marcador){
+    recarregarInventarioInicialMF();
+    storageSet(`${STORAGE_PREFIX}:inventario_mf_validades_v2`, "1");
   }
 
   // migração: complementa os 7 materiais que faltavam no cadastro e suas entradas de inventário
@@ -1696,12 +1761,12 @@ function emptyMaterial(){ return { codigo:"", codigoBarras:"", nome:"", categori
 
 function materiaisHTML(){
   const formArea = OPEN_FORM?.type==="material" ? materialFormHTML(OPEN_FORM.editId) : "";
-  const categoriaOptions = `<option value="">Todas as categorias</option>` + [...new Set(DB.materiais.map(m=>m.categoria).filter(Boolean))].sort((a,b)=>a.localeCompare(b)).map(c=>`<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
+  const categoriaItems = [...new Set(DB.materiais.map(m=>m.categoria).filter(Boolean))].sort((a,b)=>a.localeCompare(b)).map(c=>({value:c, label:c}));
   return pageHTML("Materiais","Itens sob controle",
     `<button class="sc-btn sc-btn-primary" onclick="openForm('material')">${icon("plus")}<span>Novo material</span></button>`, `
     <div class="sc-toolbar">
       <div class="sc-search">${icon("search")}<input id="materiaisSearch" oninput="renderMateriaisTable()" placeholder="Buscar por código, nome ou categoria…"></div>
-      <select class="sc-input" id="materiaisFiltroCategoria" onchange="renderMateriaisTable()" style="max-width:220px;">${categoriaOptions}</select>
+      ${comboHTML("materiaisFiltroCategoria", categoriaItems, document.getElementById("materiaisFiltroCategoria")?.value||"", {placeholder:"Todas as categorias", style:"max-width:220px;", onChange:()=>renderMateriaisTable()})}
       <select class="sc-input" id="materiaisOrdenar" onchange="renderMateriaisTable()" style="max-width:200px;">
         <option value="nome_asc">Nome (A-Z)</option>
         <option value="nome_desc">Nome (Z-A)</option>
@@ -1758,8 +1823,8 @@ function materiaisTableHTML(list){
 }
 function materialFormHTML(editId){
   const m = editId ? DB.materiais.find(x=>x.id===editId) : (() => { const e = emptyMaterial(); e.escopo = ROOM==="todas"?[...ALL_ROOM_IDS]:[ROOM]; return e; })();
-  const categoriaOptions = DB.categorias.length===0?`<option value="">Cadastre uma categoria</option>`:[...DB.categorias].sort((a,b)=>a.nome.localeCompare(b.nome)).map(c=>`<option value="${escapeHtml(c.nome)}" ${m?.categoria===c.nome?"selected":""}>${escapeHtml(c.nome)}</option>`).join("");
-  const unidadeOptions = DB.unidades.length===0?`<option value="">Cadastre uma unidade</option>`:[...DB.unidades].sort((a,b)=>a.nome.localeCompare(b.nome)).map(u=>`<option value="${escapeHtml(u.nome)}" ${m?.unidade===u.nome?"selected":""}>${escapeHtml(u.nome)}</option>`).join("");
+  const categoriaItemsForm = [...DB.categorias].sort((a,b)=>a.nome.localeCompare(b.nome)).map(c=>({value:c.nome, label:c.nome}));
+  const unidadeItemsForm = [...DB.unidades].sort((a,b)=>a.nome.localeCompare(b.nome)).map(u=>({value:u.nome, label:u.nome}));
   return `
   <div class="sc-formpanel">
     <div class="sc-formpanelHead"><span>${editId?"Editar material":"Novo material"}</span>
@@ -1779,8 +1844,8 @@ function materialFormHTML(editId){
         <label class="sc-field is-wide"><span>Nome <span style="color:var(--danger);">*</span></span><input class="sc-input" id="f_nome" value="${escapeHtml(m?.nome||"")}" placeholder="Ex.: Vitamina A"></label>
       </div>
       <div class="sc-fieldrow">
-        <label class="sc-field"><span>Categoria</span><select class="sc-input" id="f_categoria">${categoriaOptions}</select></label>
-        <label class="sc-field"><span>Unidade</span><select class="sc-input" id="f_unidade">${unidadeOptions}</select></label>
+        <label class="sc-field"><span>Categoria</span>${comboHTML("f_categoria", categoriaItemsForm, m?.categoria||"", {placeholder:"Digite para buscar…"})}</label>
+        <label class="sc-field"><span>Unidade</span>${comboHTML("f_unidade", unidadeItemsForm, m?.unidade||"", {placeholder:"Digite para buscar…"})}</label>
         <label class="sc-field"><span>Estoque mínimo</span><input class="sc-input" type="number" min="0" step="0.001" id="f_min" value="${m?.estoqueMinimo ?? 0}"></label>
       </div>
       ${editId ? `<div class="sc-hint">Estoque atual: <strong>${fmtNum(m?.estoqueAtual||0)} ${escapeHtml(m?.unidade||"")}</strong> — para alterar, lance uma movimentação de entrada, saída ou ajuste.</div>` : `<div class="sc-hint">O estoque inicial começa em zero. Para adicionar quantidade, lance uma movimentação de entrada depois de salvar o material.</div>`}
@@ -1904,12 +1969,12 @@ function imprimirEtiquetaMaterialCadastro(materialId){
 /* ============================ CADASTRO: MISTURAS FINAS (receitas) ============================ */
 function misturasFinasHTML(){
   const formArea = OPEN_FORM?.type==="misturafina" ? misturaFinaFormHTML(OPEN_FORM.editId) : "";
-  const setorOptions = `<option value="">Todos os setores</option>` + [...DB.setores].sort((a,b)=>a.nome.localeCompare(b.nome)).map(s=>`<option value="${s.id}">${escapeHtml(s.nome)}</option>`).join("");
+  const setorItemsFiltro = [...DB.setores].sort((a,b)=>a.nome.localeCompare(b.nome)).map(s=>({value:s.id, label:s.nome}));
   return pageHTML("Misturas Finas","Receitas de produção — ingredientes necessários para cada semiacabado",
     `<button class="sc-btn sc-btn-primary" onclick="abrirFormMisturaFina()">${icon("plus")}<span>Nova mistura fina</span></button>`, `
     <div class="sc-toolbar">
       <div class="sc-search">${icon("search")}<input id="misturasSearch" oninput="renderMisturasFinasTable()" placeholder="Buscar por nome ou código…"></div>
-      <select class="sc-input" id="misturasFiltroSetor" onchange="renderMisturasFinasTable()" style="max-width:220px;">${setorOptions}</select>
+      ${comboHTML("misturasFiltroSetor", setorItemsFiltro, document.getElementById("misturasFiltroSetor")?.value||"", {placeholder:"Todos os setores", style:"max-width:220px;", onChange:()=>renderMisturasFinasTable()})}
       <select class="sc-input" id="misturasOrdenar" onchange="renderMisturasFinasTable()" style="max-width:200px;">
         <option value="nome_asc">Nome (A-Z)</option>
         <option value="nome_desc">Nome (Z-A)</option>
@@ -1966,10 +2031,10 @@ function abrirFormMisturaFina(editId){
 function ingredientesRowsHTML(){
   const draft = OPEN_FORM?.ingredientesDraft || [];
   const materialMap = mapBy(DB.materiais);
-  const materialOptions = (selected) => `<option value="">Selecione…</option>` + [...DB.materiais].sort((a,b)=>a.nome.localeCompare(b.nome)).map(m=>`<option value="${m.id}" ${m.id===selected?"selected":""}>${escapeHtml(m.nome)}${m.codigo?` (${escapeHtml(m.codigo)})`:""}</option>`).join("");
+  const materialItensReceita = [...DB.materiais].sort((a,b)=>a.nome.localeCompare(b.nome)).map(m=>({value:m.id, label:`${m.nome}${m.codigo?` (${m.codigo})`:""}`}));
   const linhas = draft.map((ing, i) => `
     <div class="sc-fieldrow" style="align-items:flex-end;">
-      <label class="sc-field is-wide"><span>Ingrediente ${i+1}</span><select class="sc-input" onchange="onIngredienteMaterialChange(${i}, this.value)">${materialOptions(ing.materialId)}</select></label>
+      <label class="sc-field is-wide"><span>Ingrediente ${i+1}</span>${comboHTML(`ing_material_${i}`, materialItensReceita, ing.materialId, {placeholder:"Digite para buscar o material…", onChange:(v)=>onIngredienteMaterialChange(i, v)})}</label>
       <label class="sc-field"><span>% do total</span><input class="sc-input" type="number" min="0" max="100" step="0.01" value="${ing.percentual}" onchange="onIngredientePercentualChange(${i}, this.value)"></label>
       <button type="button" class="sc-iconbtn" title="Remover ingrediente" onclick="removerIngrediente(${i})">${icon("trash",14)}</button>
     </div>`).join("");
@@ -2005,8 +2070,8 @@ function refreshIngredientesRows(){
 }
 function misturaFinaFormHTML(editId){
   const mf = editId ? DB.misturasFinas.find(x=>x.id===editId) : null;
-  const unidadeOptions = DB.unidades.length===0?`<option value="">Cadastre uma unidade</option>`:[...DB.unidades].sort((a,b)=>a.nome.localeCompare(b.nome)).map(u=>`<option value="${escapeHtml(u.nome)}" ${mf?.unidade===u.nome?"selected":""}>${escapeHtml(u.nome)}</option>`).join("");
-  const setorOptions = `<option value="">Selecione…</option>` + [...DB.setores].sort((a,b)=>a.nome.localeCompare(b.nome)).map(s=>`<option value="${s.id}" ${mf?.setorId===s.id?"selected":""}>${escapeHtml(s.nome)}</option>`).join("");
+  const unidadeItemsMF = [...DB.unidades].sort((a,b)=>a.nome.localeCompare(b.nome)).map(u=>({value:u.nome, label:u.nome}));
+  const setorItemsMF = [...DB.setores].sort((a,b)=>a.nome.localeCompare(b.nome)).map(s=>({value:s.id, label:s.nome}));
   return `
   <div class="sc-formpanel">
     <div class="sc-formpanelHead"><span>${mf?"Editar mistura fina":"Nova mistura fina"}</span>
@@ -2019,8 +2084,8 @@ function misturaFinaFormHTML(editId){
       <div id="mf_codigo_aviso">${editId ? `<div class="sc-hint" style="color:var(--amber);">${icon("alert",13)} MF já existente (${escapeHtml(mf?.nome||"")}).</div>` : ""}</div>
       <div class="sc-hint">O material do semiacabado é criado (ou atualizado) automaticamente com este mesmo nome — não é preciso cadastrá-lo antes em Materiais.</div>
       <div class="sc-fieldrow">
-        <label class="sc-field is-wide"><span>Setor</span><select class="sc-input" id="mf_setor">${setorOptions}</select></label>
-        <label class="sc-field"><span>Unidade</span><select class="sc-input" id="mf_unidade">${unidadeOptions}</select></label>
+        <label class="sc-field is-wide"><span>Setor</span>${comboHTML("mf_setor", setorItemsMF, mf?.setorId||"", {placeholder:"Digite para buscar o setor…"})}</label>
+        <label class="sc-field"><span>Unidade</span>${comboHTML("mf_unidade", unidadeItemsMF, mf?.unidade||"", {placeholder:"Digite para buscar…"})}</label>
       </div>
       <div class="sc-hint">O setor indica a qual setor esta mistura fina pertence (a produção sempre acontece na Sala de Mistura Fina) — em Itens Produzidos, os lotes ficam organizados por setor e depois por mistura fina. Informe o percentual de cada ingrediente no total da mistura (a soma deve fechar em 100%); ao registrar uma produção, você informa a quantidade a ser produzida e o sistema calcula o peso de cada ingrediente automaticamente.</div>
       <div class="sc-field is-wide">
@@ -2306,7 +2371,7 @@ function renderSetoresTable(){
 function setorFormHTML(editId){
   const s = editId ? DB.setores.find(x=>x.id===editId) : null;
   const salaBaseOptions = `<option value="">Nenhuma (setor de destino comum)</option>` + ROOMS.map(r=>`<option value="${r.id}" ${s?.salaBase===r.id?"selected":""}>${escapeHtml(r.label)}</option>`).join("");
-  const responsavelOptions = `<option value="">Nenhum</option>` + [...DB.colaboradores].sort((a,b)=>a.nome.localeCompare(b.nome)).map(c=>`<option value="${c.id}" ${s?.responsavelId===c.id?"selected":""}>${escapeHtml(c.nome)}</option>`).join("");
+  const responsavelItens = [...DB.colaboradores].sort((a,b)=>a.nome.localeCompare(b.nome)).map(c=>({value:c.id, label:c.nome}));
   return `
   <div class="sc-formpanel">
     <div class="sc-formpanelHead"><span>${s?"Editar setor":"Novo setor"}</span>
@@ -2314,7 +2379,7 @@ function setorFormHTML(editId){
     <div class="sc-formpanelBody">
       <div class="sc-fieldrow">
         <label class="sc-field is-wide"><span>Nome do setor</span><input class="sc-input" id="f_snome" value="${escapeHtml(s?.nome||"")}" placeholder="Ex.: Centro Cirúrgico"></label>
-        <label class="sc-field is-wide"><span>Responsável (colaborador cadastrado)</span><select class="sc-input" id="f_sresp">${responsavelOptions}</select></label>
+        <label class="sc-field is-wide"><span>Responsável (colaborador cadastrado)</span>${comboHTML("f_sresp", responsavelItens, s?.responsavelId||"", {placeholder:"Digite para buscar…"})}</label>
       </div>
       ${DB.colaboradores.length===0 ? `<div class="sc-hint">Nenhum colaborador cadastrado ainda — cadastre em "Colaboradores" para poder vinculá-lo aqui.</div>` : ""}
       <div class="sc-fieldrow">
@@ -2350,12 +2415,12 @@ function deleteSetor(id){
 /* ============================ CADASTRO: COLABORADORES ============================ */
 function colaboradoresHTML(){
   const formArea = OPEN_FORM?.type==="colaborador" ? colaboradorFormHTML(OPEN_FORM.editId) : "";
-  const setorOptions = `<option value="">Todos os setores</option>` + [...DB.setores].sort((a,b)=>a.nome.localeCompare(b.nome)).map(s=>`<option value="${s.id}">${escapeHtml(s.nome)}</option>`).join("");
+  const setorItensColabFiltro = [...DB.setores].sort((a,b)=>a.nome.localeCompare(b.nome)).map(s=>({value:s.id, label:s.nome}));
   return pageHTML("Colaboradores","Pessoas cadastradas para uso como responsáveis de setor",
     `<button class="sc-btn sc-btn-primary" onclick="openForm('colaborador')">${icon("plus")}<span>Novo colaborador</span></button>`, `
     <div class="sc-toolbar">
       <div class="sc-search">${icon("search")}<input id="colaboradoresSearch" oninput="renderColaboradoresTable()" placeholder="Buscar por nome…"></div>
-      <select class="sc-input" id="colaboradoresFiltroSetor" onchange="renderColaboradoresTable()" style="max-width:220px;">${setorOptions}</select>
+      ${comboHTML("colaboradoresFiltroSetor", setorItensColabFiltro, document.getElementById("colaboradoresFiltroSetor")?.value||"", {placeholder:"Todos os setores", style:"max-width:220px;", onChange:()=>renderColaboradoresTable()})}
       <select class="sc-input" id="colaboradoresOrdenar" onchange="renderColaboradoresTable()" style="max-width:200px;">
         <option value="nome_asc">Nome (A-Z)</option>
         <option value="nome_desc">Nome (Z-A)</option>
@@ -2397,7 +2462,7 @@ function renderColaboradoresTable(){
 }
 function colaboradorFormHTML(editId){
   const c = editId ? DB.colaboradores.find(x=>x.id===editId) : null;
-  const setorOptions = `<option value="">Nenhum</option>` + [...DB.setores].sort((a,b)=>a.nome.localeCompare(b.nome)).map(s=>`<option value="${s.id}" ${c?.setorId===s.id?"selected":""}>${escapeHtml(s.nome)}</option>`).join("");
+  const setorItensColabForm = [...DB.setores].sort((a,b)=>a.nome.localeCompare(b.nome)).map(s=>({value:s.id, label:s.nome}));
   return `
   <div class="sc-formpanel">
     <div class="sc-formpanelHead"><span>${c?"Editar colaborador":"Novo colaborador"}</span>
@@ -2405,7 +2470,7 @@ function colaboradorFormHTML(editId){
     <div class="sc-formpanelBody">
       <div class="sc-fieldrow">
         <label class="sc-field is-wide"><span>Nome do colaborador</span><input class="sc-input" id="f_colnome" value="${escapeHtml(c?.nome||"")}" placeholder="Nome completo"></label>
-        <label class="sc-field is-wide"><span>Setor</span><select class="sc-input" id="f_colsetor">${setorOptions}</select></label>
+        <label class="sc-field is-wide"><span>Setor</span>${comboHTML("f_colsetor", setorItensColabForm, c?.setorId||"", {placeholder:"Digite para buscar…"})}</label>
       </div>
     </div>
     <div class="sc-formfoot">
@@ -2662,45 +2727,31 @@ function movimentacoesHTML(){
   const materialMap = mapBy(DB.materiais), setorMap = mapBy(DB.setores), tipoMap = mapBy(DB.tipos);
   const movimentosNaSala = DB.movimentos.filter(m => inRoom(m, ROOM));
 
-  const historico = movimentosNaSala.length===0 ? emptyHTML("Nenhuma movimentação registrada ainda nesta visão.") : `
-    <div class="sc-tablewrap"><table class="sc-table">
-      <thead><tr><th>Nº</th><th>Data</th><th>Material</th><th>Tipo</th><th>Setor</th><th class="num">Qtd.</th><th>Lote</th><th></th></tr></thead>
-      <tbody>${movimentosNaSala.map((m)=>{
-        const cls = m.delta<0?"stamp-red":(m.delta>0?"stamp-blue":"");
-        const sign = m.delta>0?"+":(m.delta<0?"−":"±");
-        const numeroOriginal = DB.movimentos.length - DB.movimentos.findIndex(x=>x.id===m.id);
-        return `<tr>
-          <td class="mono">${String(numeroOriginal).padStart(4,"0")}</td>
-          <td class="mono">${fmtDate(m.data)}</td>
-          <td>${escapeHtml(materialMap[m.materialId]?.nome||"—")}</td>
-          <td>${efeitoTagHTML(tipoMap[m.tipoMovimentoId])}</td>
-          <td>${escapeHtml(setorMap[m.setorId]?.nome||"—")}</td>
-          <td class="num mono ${cls}">${sign}${fmtNum(Math.abs(m.quantidade))}</td>
-          <td class="mono">${escapeHtml(m.lote||"—")}</td>
-          <td class="rowActions"><button class="sc-iconbtn" title="Excluir" onclick="deleteMovimento('${m.id}')">${icon("trash",14)}</button></td>
-        </tr>`;
-      }).join("")}</tbody></table></div>`;
+  // mesma tabela usada no relatório de Movimentações, para os dois históricos se comportarem igual
+  const historico = movimentosNaSala.length===0
+    ? emptyHTML("Nenhuma movimentação registrada ainda nesta visão.")
+    : `<div class="sc-tablewrap">${movTableHTML(movimentosNaSala)}</div>`;
 
   const materiaisNaSala = DB.materiais.filter(m => inRoom(m, ROOM));
   const tiposNaSala = DB.tipos.filter(t => inRoom(t, ROOM) && t.especial!=="producao_entrada" && t.especial!=="producao_consumo" && t.especial!=="producao_envio" && t.especial!=="pesagem_individual");
   const colaboradoresNaSala = DB.colaboradores.filter(c => inRoom(c, ROOM));
   const tipoPreSelecionado = MV_CONTINUAR_DRAFT ? DB.tipos.find(t=>t.id===MV_CONTINUAR_DRAFT.tipoMovimentoId) : null;
 
-  const codigoOptions = `<option value="">Selecione…</option>` + materiaisNaSala.filter(m=>m.codigo).slice().sort((a,b)=>a.codigo.localeCompare(b.codigo, undefined, {numeric:true})).map(m=>`<option value="${m.id}">${escapeHtml(m.codigo)}</option>`).join("");
-  const materialOptions = `<option value="">Selecione…</option>` + materiaisNaSala.slice().sort((a,b)=>a.nome.localeCompare(b.nome)).map(m=>`<option value="${m.id}">${escapeHtml(m.nome)}</option>`).join("");
-  const tipoOptions = `<option value="">Selecione…</option>` + tiposNaSala.slice().sort((a,b)=>a.nome.localeCompare(b.nome)).map(t=>`<option value="${t.id}" ${MV_CONTINUAR_DRAFT?.tipoMovimentoId===t.id?"selected":""}>${escapeHtml(t.nome)}</option>`).join("");
-  const colaboradorOptions = `<option value="">Selecione…</option>` + colaboradoresNaSala.slice().sort((a,b)=>a.nome.localeCompare(b.nome)).map(c=>`<option value="${c.id}" ${MV_CONTINUAR_DRAFT?.colaboradorId===c.id?"selected":""}>${escapeHtml(c.nome)}</option>`).join("");
+  const codigoItens = materiaisNaSala.filter(m=>m.codigo).slice().sort((a,b)=>a.codigo.localeCompare(b.codigo, undefined, {numeric:true})).map(m=>({value:m.id, label:m.codigo}));
+  const materialItens = materiaisNaSala.slice().sort((a,b)=>a.nome.localeCompare(b.nome)).map(m=>({value:m.id, label:m.nome}));
+  const tipoItens = tiposNaSala.slice().sort((a,b)=>a.nome.localeCompare(b.nome)).map(t=>({value:t.id, label:t.nome}));
+  const colaboradorItens = colaboradoresNaSala.slice().sort((a,b)=>a.nome.localeCompare(b.nome)).map(c=>({value:c.id, label:c.nome}));
 
   const form = `
   <div class="sc-formpanel is-plain">
     <div class="sc-formpanelBody">
       <div class="sc-fieldrow">
         <label class="sc-field"><span>Data</span><input class="sc-input" type="date" id="mv_data" value="${todayISO()}"></label>
-        <label class="sc-field is-wide"><span>Tipo de movimento</span><select class="sc-input" id="mv_tipo" onchange="onMovTipoChange()">${tipoOptions}</select></label>
+        <label class="sc-field is-wide"><span>Tipo de movimento</span>${comboHTML("mv_tipo", tipoItens, MV_CONTINUAR_DRAFT?.tipoMovimentoId||"", {placeholder:"Digite para buscar…", onChange:()=>onMovTipoChange()})}</label>
       </div>
       <div class="sc-fieldrow">
-        <label class="sc-field"><span>Código</span><select class="sc-input" id="mv_codigo" onchange="onMovCodigoChange()">${codigoOptions}</select></label>
-        <label class="sc-field is-wide"><span>Material</span><select class="sc-input" id="mv_material" onchange="onMovMaterialChange()">${materialOptions}</select></label>
+        <label class="sc-field"><span>Código</span>${comboHTML("mv_codigo", codigoItens, "", {placeholder:"Buscar código…", onChange:()=>onMovCodigoChange()})}</label>
+        <label class="sc-field is-wide"><span>Material</span>${comboHTML("mv_material", materialItens, "", {placeholder:"Digite para buscar o material…", onChange:()=>onMovMaterialChange()})}</label>
         <label class="sc-field is-wide"><span>Localizar por código de barras</span>
           <div style="display:flex; gap:6px;">
             <input class="sc-input" id="mv_codigoBusca" placeholder="Digite ou escaneie o código" onkeydown="if(event.key==='Enter'){event.preventDefault();buscarMaterialPorCodigo();}">
@@ -2713,7 +2764,7 @@ function movimentacoesHTML(){
       <div class="sc-fieldrow">
         <label class="sc-field"><span>Quantidade</span><input class="sc-input" type="number" min="0" step="0.001" id="mv_qtd" oninput="onMovQtdChange()"></label>
         <div class="sc-fieldrow" id="mv_setorWrap" style="flex:2 1 320px;">${setorFieldHTML(tipoPreSelecionado, MV_CONTINUAR_DRAFT?.setorId)}</div>
-        <label class="sc-field is-wide"><span>Colaborador <span id="mv_colaboradorRequired" style="color:var(--danger); display:${tipoPreSelecionado && isEntregaIndividual(tipoPreSelecionado)?"inline":"none"};">(obrigatório para Entrega Individual)</span></span><select class="sc-input" id="mv_colaborador">${colaboradorOptions}</select></label>
+        <label class="sc-field is-wide"><span>Colaborador <span id="mv_colaboradorRequired" style="color:var(--danger); display:${tipoPreSelecionado && isEntregaIndividual(tipoPreSelecionado)?"inline":"none"};">(obrigatório para Entrega Individual)</span></span>${comboHTML("mv_colaborador", colaboradorItens, MV_CONTINUAR_DRAFT?.colaboradorId||"", {placeholder:"Digite para buscar…", onChange:()=>onMovColaboradorChange()})}</label>
       </div>
       <div class="sc-fieldrow" id="mv_loteWrap">${loteFieldsHTML(tipoPreSelecionado, "")}</div>
       <label class="sc-field"><span>Observações</span><textarea class="sc-input" id="mv_obs" rows="2"></textarea></label>
@@ -2874,17 +2925,6 @@ function submitMovimento(continuar){
   }
   render();
 }
-function deleteMovimento(id){
-  if (!confirm("Excluir esta movimentação? O estoque será recalculado.")) return;
-  const mov = DB.movimentos.find(m=>m.id===id);
-  if (mov && mov.delta){
-    DB.materiais = DB.materiais.map(m => m.id===mov.materialId ? {...m, estoqueAtual: round3((m.estoqueAtual||0)-mov.delta)} : m);
-    persist("materiais");
-  }
-  DB.movimentos = DB.movimentos.filter(m=>m.id!==id);
-  persist("movimentos");
-  render();
-}
 function anularMovimento(id){
   const mov = DB.movimentos.find(m=>m.id===id);
   if (!mov) return;
@@ -2911,7 +2951,7 @@ function anularMovimento(id){
   const agora = new Date().toISOString();
   DB.movimentos = DB.movimentos.map(m => idsGrupo.has(m.id) ? { ...m, anulado:true, anuladoEm: agora } : m);
   persist("movimentos");
-  renderRelatorioMov();
+  atualizarHistoricoMovimentos();
 }
 function reativarMovimento(id){
   const mov = DB.movimentos.find(m=>m.id===id);
@@ -2934,7 +2974,7 @@ function reativarMovimento(id){
   const idsGrupo = new Set(grupo.map(m=>m.id));
   DB.movimentos = DB.movimentos.map(m => idsGrupo.has(m.id) ? { ...m, anulado:false, anuladoEm: null } : m);
   persist("movimentos");
-  renderRelatorioMov();
+  atualizarHistoricoMovimentos();
 }
 
 /* ============================ PRODUÇÃO (mistura fina) ============================ */
@@ -2971,14 +3011,14 @@ function producaoHTML(){
   }
 
   const mfSelecionada = DB.misturasFinas.find(m=>m.id===PRODUCAO_SESSAO.misturaFinaId);
-  const misturaOptions = `<option value="">Selecione…</option>` + misturas.slice().sort((a,b)=>a.nome.localeCompare(b.nome)).map(mf=>`<option value="${mf.id}" ${PRODUCAO_SESSAO.misturaFinaId===mf.id?"selected":""}>${escapeHtml(mf.nome)}</option>`).join("");
+  const misturaItens = misturas.slice().sort((a,b)=>a.nome.localeCompare(b.nome)).map(mf=>({value:mf.id, label:mf.nome}));
 
   const cabecalho = `
   <div class="sc-formpanel is-plain">
     <div class="sc-formpanelBody">
       <div class="sc-fieldrow">
         <label class="sc-field"><span>Data</span><input class="sc-input" type="date" id="pr_data" value="${PRODUCAO_SESSAO.data}" onchange="onProducaoCampoChange('data', this.value)"></label>
-        <label class="sc-field is-wide"><span>Mistura fina</span><select class="sc-input" id="pr_mistura" onchange="onProducaoMisturaChange(this.value)">${misturaOptions}</select></label>
+        <label class="sc-field is-wide"><span>Mistura fina</span>${comboHTML("pr_mistura", misturaItens, PRODUCAO_SESSAO.misturaFinaId||"", {placeholder:"Digite para buscar a mistura…", onChange:(v)=>onProducaoMisturaChange(v)})}</label>
         <label class="sc-field"><span>Quantidade a produzir${mfSelecionada?` (${escapeHtml(mfSelecionada.unidade||"")})`:""}</span><input class="sc-input" type="number" min="0" step="0.001" id="pr_qtdalvo" value="${escapeHtml(PRODUCAO_SESSAO.quantidadeAlvo)}" onchange="onProducaoQuantidadeAlvoChange(this.value)"></label>
       </div>
       <div class="sc-fieldrow">
@@ -3081,7 +3121,7 @@ function cancelarNovoItemIndividual(){
   renderMain();
 }
 function formNovoItemIndividualHTML(){
-  const materialOptions = `<option value="">Selecione…</option>` + [...DB.materiais].sort((a,b)=>a.nome.localeCompare(b.nome)).map(m=>`<option value="${m.id}" ${PRODUCAO_SESSAO.materialIndividualAtual===m.id?"selected":""}>${escapeHtml(m.nome)}${m.codigo?` (${escapeHtml(m.codigo)})`:""}</option>`).join("");
+  const materialItensIndividual = [...DB.materiais].sort((a,b)=>a.nome.localeCompare(b.nome)).map(m=>({value:m.id, label:`${m.nome}${m.codigo?` (${m.codigo})`:""}`}));
   const materialId = PRODUCAO_SESSAO.materialIndividualAtual;
   const material = DB.materiais.find(m=>m.id===materialId);
 
@@ -3089,18 +3129,16 @@ function formNovoItemIndividualHTML(){
   if (materialId){
     const lotes = getLotesEmEstoque(materialId);
     const loteEmEdicao = PRODUCAO_SESSAO.loteIndividualEmEdicao || "";
-    const loteOptions = lotes.length===0
-      ? `<option value="">Nenhum lote em estoque</option>`
-      : `<option value="">Selecione o lote…</option>` + lotes.map(l=>`<option value="${escapeHtml(l.lote)}" ${loteEmEdicao===l.lote?"selected":""}>${l.lote?escapeHtml(l.lote):"(sem lote)"} — disponível ${fmtNum(l.saldo)}${l.validade?` — val. ${fmtDate(l.validade)}`:""}</option>`).join("");
+    const loteItens = lotes.map(l=>({ value:l.lote, label:`${l.lote||"(sem lote)"} — disponível ${fmtNum(l.saldo)}${l.validade?` — val. ${fmtDate(l.validade)}`:""}` }));
     camposLotePeso = `
-      <label class="sc-field is-wide"><span>Lote do material <span style="color:var(--danger);">*</span></span><select class="sc-input" id="pi_novo_lote" onchange="onLoteIndividualChange(this.value)">${loteOptions}</select></label>
+      <label class="sc-field is-wide"><span>Lote do material <span style="color:var(--danger);">*</span></span>${comboHTML("pi_novo_lote", loteItens, loteEmEdicao, {placeholder:"Digite para buscar o lote…", onChange:(v)=>onLoteIndividualChange(v)})}</label>
       <label class="sc-field"><span>Peso pesado</span><input class="sc-input" type="number" min="0" step="0.001" id="pi_novo_qtd" value="" ${loteEmEdicao?"":"disabled"}></label>`;
     if (loteEmEdicao) botaoAdicionar = `<button class="sc-btn sc-btn-primary" onclick="adicionarItemIndividual()">${icon("plus",13)}<span>Adicionar</span></button>`;
   }
 
   return `
     <div style="border-top:1px dashed var(--line); padding-top:10px; display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap;">
-      <label class="sc-field is-wide"><span>Material</span><select class="sc-input" id="pi_novo_material" onchange="onMaterialIndividualChange(this.value)">${materialOptions}</select></label>
+      <label class="sc-field is-wide"><span>Material</span>${comboHTML("pi_novo_material", materialItensIndividual, PRODUCAO_SESSAO.materialIndividualAtual||"", {placeholder:"Digite para buscar o material…", onChange:(v)=>onMaterialIndividualChange(v)})}</label>
       <button class="sc-btn sc-btn-ghost" onclick="escanearMaterialIndividual()">${icon("camera",13)}<span>Escanear código de barras</span></button>
       ${camposLotePeso}
       ${botaoAdicionar}
@@ -3329,18 +3367,16 @@ function pesagemFormHTML(materialId, alvo, material){
   const totalPesado = round3(alocacoes.reduce((acc,a)=>acc+a.quantidade,0));
   const faltamParaAlvo = round3(Math.max(0, alvo-totalPesado));
 
-  const loteOptions = lotes.length===0
-    ? `<option value="">Nenhum lote em estoque</option>`
-    : `<option value="">Selecione o lote…</option>` + lotes.map(l=>{
-        const disponivel = round3(l.saldo - (jaAlocadoPorLote[l.lote]||0));
-        return `<option value="${escapeHtml(l.lote)}" ${loteEmEdicao===l.lote?"selected":""}>${l.lote?escapeHtml(l.lote):"(sem lote)"} — disponível ${fmtNum(disponivel)}${l.validade?` — val. ${fmtDate(l.validade)}`:""}</option>`;
-      }).join("");
+  const loteItens = lotes.map(l=>{
+    const disponivel = round3(l.saldo - (jaAlocadoPorLote[l.lote]||0));
+    return { value:l.lote, label:`${l.lote||"(sem lote)"} — disponível ${fmtNum(disponivel)}${l.validade?` — val. ${fmtDate(l.validade)}`:""}` };
+  });
 
   return `
     <div style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap; border-top:1px dashed var(--line); padding-top:10px;">
       ${material?.codigoBarras ? `<div class="sc-hint" style="width:100%; margin:0 0 2px;">${icon("check",12)} Material confirmado por código de barras.</div>` : `<div class="sc-hint" style="width:100%; margin:0 0 2px;">${icon("alert",12)} Este material não tem código de barras cadastrado — confirmação por leitura não disponível.</div>`}
       ${resumoAlocacoes}
-      <label class="sc-field is-wide"><span>Lote do material <span style="color:var(--danger);">*</span></span><select class="sc-input" id="pesar_lote_${materialId}" onchange="onLotePesagemChange('${materialId}', this.value)">${loteOptions}</select></label>
+      <label class="sc-field is-wide"><span>Lote do material <span style="color:var(--danger);">*</span></span>${comboHTML(`pesar_lote_${materialId}`, loteItens, loteEmEdicao, {placeholder:"Digite para buscar o lote…", onChange:(v)=>onLotePesagemChange(materialId, v)})}</label>
       <label class="sc-field"><span>Peso pesado neste lote</span><input class="sc-input" type="number" min="0" step="0.001" id="pesar_qtd_${materialId}" placeholder="${totalPesado>0?`Faltam p/ alvo: ${fmtNum(faltamParaAlvo)}`:`Alvo: ${fmtNum(alvo)}`}" value="" ${loteEmEdicao?"":"disabled"}></label>
       <button class="sc-btn sc-btn-ghost" ${loteEmEdicao?"":"disabled"} onclick="adicionarAlocacaoPesagem('${materialId}')">${icon("plus",13)}<span>Adicionar lote</span></button>
       <div id="pesar_erro_${materialId}" style="width:100%;"></div>
@@ -4275,17 +4311,15 @@ function pesagemPendenciaFormHTML(materialId, material){
         </div>`).join("")}
     </div>` : "";
 
-  const loteOptions = lotes.length===0
-    ? `<option value="">Nenhum lote em estoque</option>`
-    : `<option value="">Selecione o lote…</option>` + lotes.map(l=>{
-        const disponivel = round3(l.saldo - (jaAlocadoPorLote[l.lote]||0));
-        return `<option value="${escapeHtml(l.lote)}" ${loteEmEdicao===l.lote?"selected":""}>${l.lote?escapeHtml(l.lote):"(sem lote)"} — disponível ${fmtNum(disponivel)}${l.validade?` — val. ${fmtDate(l.validade)}`:""}</option>`;
-      }).join("");
+  const loteItens = lotes.map(l=>{
+    const disponivel = round3(l.saldo - (jaAlocadoPorLote[l.lote]||0));
+    return { value:l.lote, label:`${l.lote||"(sem lote)"} — disponível ${fmtNum(disponivel)}${l.validade?` — val. ${fmtDate(l.validade)}`:""}` };
+  });
   return `
     <div style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap; border-top:1px dashed var(--line); padding-top:8px;">
       ${material?.codigoBarras ? `<div class="sc-hint" style="width:100%; margin:0 0 2px;">${icon("check",12)} Material confirmado por código de barras.</div>` : `<div class="sc-hint" style="width:100%; margin:0 0 2px;">${icon("alert",12)} Este material não tem código de barras cadastrado.</div>`}
       ${resumoAlocacoes}
-      <label class="sc-field is-wide"><span>Lote do material <span style="color:var(--danger);">*</span></span><select class="sc-input" id="pesarpend_lote_${materialId}" onchange="event.stopPropagation();onLotePesagemPendenciaChange('${materialId}', this.value)">${loteOptions}</select></label>
+      <label class="sc-field is-wide"><span>Lote do material <span style="color:var(--danger);">*</span></span>${comboHTML(`pesarpend_lote_${materialId}`, loteItens, loteEmEdicao, {placeholder:"Digite para buscar o lote…", onChange:(v)=>onLotePesagemPendenciaChange(materialId, v)})}</label>
       <label class="sc-field"><span>Peso pesado neste lote</span><input class="sc-input" type="number" min="0" step="0.001" id="pesarpend_qtd_${materialId}" value="" ${loteEmEdicao?"":"disabled"}></label>
       <button class="sc-btn sc-btn-ghost" ${loteEmEdicao?"":"disabled"} onclick="event.stopPropagation();adicionarAlocacaoPesagemPendencia('${materialId}')">${icon("plus",13)}<span>Adicionar lote</span></button>
       <div id="pesarpend_erro_${materialId}" style="width:100%;"></div>
@@ -4479,7 +4513,7 @@ function estoquesHTML(){
   const qtdHoje = contarStatus("hoje");
   const qtdCriticos = contarStatus("critico");
   const qtdAtencao = contarStatus("atencao");
-  const categoriaOptions = `<option value="">Todas as categorias</option>` + [...new Set(materiaisNaSala.map(m=>m.categoria).filter(Boolean))].sort((a,b)=>a.localeCompare(b)).map(c=>`<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
+  const categoriaItemsEstoque = [...new Set(materiaisNaSala.map(m=>m.categoria).filter(Boolean))].sort((a,b)=>a.localeCompare(b)).map(c=>({value:c, label:c}));
 
   const estoqueSection = sectionHTML("Estoque atual","boxes",
     `<button class="sc-btn sc-btn-ghost" onclick="exportEstoqueExcel()">${icon("download",14)}<span>Exportar Excel</span></button>`, `
@@ -4493,7 +4527,7 @@ function estoquesHTML(){
     </div>` : ""}
     <div class="sc-toolbar">
       <div class="sc-search">${icon("search")}<input id="estoqueSearch" oninput="renderEstoqueTable()" placeholder="Buscar por código ou nome…"></div>
-      <select class="sc-input" id="estoqueFiltroCategoria" onchange="renderEstoqueTable()" style="max-width:200px;">${categoriaOptions}</select>
+      ${comboHTML("estoqueFiltroCategoria", categoriaItemsEstoque, document.getElementById("estoqueFiltroCategoria")?.value||"", {placeholder:"Todas as categorias", style:"max-width:200px;", onChange:()=>renderEstoqueTable()})}
       <select class="sc-input" id="estoqueFiltroSituacao" onchange="renderEstoqueTable()" style="max-width:200px;">
         <option value="">Todas as situações</option>
         <option value="baixo">Abaixo do mínimo</option>
@@ -4539,16 +4573,16 @@ function renderEstoqueTable(){
 function relMovimentacoesHTML(){
   const materiaisNaSala = DB.materiais.filter(m => inRoom(m, ROOM));
   const setoresNaSala = DB.setores.filter(s => inRoom(s, ROOM));
-  const materialOptions = `<option value="">Todos</option>` + materiaisNaSala.slice().sort((a,b)=>a.nome.localeCompare(b.nome)).map(m=>`<option value="${m.id}">${escapeHtml(m.nome)}</option>`).join("");
-  const setorOptions = `<option value="">Todos</option>` + setoresNaSala.slice().sort((a,b)=>a.nome.localeCompare(b.nome)).map(s=>`<option value="${s.id}">${escapeHtml(s.nome)}</option>`).join("");
+  const materialItensRf = materiaisNaSala.slice().sort((a,b)=>a.nome.localeCompare(b.nome)).map(m=>({value:m.id, label:m.nome}));
+  const setorItensRf = setoresNaSala.slice().sort((a,b)=>a.nome.localeCompare(b.nome)).map(s=>({value:s.id, label:s.nome}));
 
   const movSection = sectionHTML("Histórico de movimentações","clipboard",
     `<button class="sc-btn sc-btn-ghost" onclick="exportMovimentosExcel()">${icon("download",14)}<span>Exportar Excel</span></button>`, `
     <div class="sc-fieldrow">
       <label class="sc-field"><span>De</span><input class="sc-input" type="date" id="rf_de" onchange="renderRelatorioMov()"></label>
       <label class="sc-field"><span>Até</span><input class="sc-input" type="date" id="rf_ate" onchange="renderRelatorioMov()"></label>
-      <label class="sc-field is-wide"><span>Material</span><select class="sc-input" id="rf_material" onchange="renderRelatorioMov()">${materialOptions}</select></label>
-      <label class="sc-field is-wide"><span>Setor</span><select class="sc-input" id="rf_setor" onchange="renderRelatorioMov()">${setorOptions}</select></label>
+      <label class="sc-field is-wide"><span>Material</span>${comboHTML("rf_material", materialItensRf, document.getElementById("rf_material")?.value||"", {placeholder:"Todos", onChange:()=>renderRelatorioMov()})}</label>
+      <label class="sc-field is-wide"><span>Setor</span>${comboHTML("rf_setor", setorItensRf, document.getElementById("rf_setor")?.value||"", {placeholder:"Todos", onChange:()=>renderRelatorioMov()})}</label>
     </div>
     <div class="sc-toolbar" style="margin-top:8px;">
       <div class="sc-search">${icon("search")}<input id="rf_busca" oninput="renderRelatorioMov()" placeholder="Buscar por lote ou documento…"></div>
@@ -4638,15 +4672,113 @@ function movTableHTML(list){
         : `<span class="sc-tag tag-entrada">Ativa</span>`;
       const acaoHTML = anulado
         ? `<button class="sc-iconbtn" title="Reativar movimentação" onclick="reativarMovimento('${m.id}')">${icon("check",14)}</button>`
-        : `<button class="sc-iconbtn" title="Anular movimentação" onclick="anularMovimento('${m.id}')">${icon("x",14)}</button>`;
-      return `<tr ${anulado?'style="opacity:.55; text-decoration:line-through;"':""}>
+        : `<button class="sc-iconbtn" title="Editar movimentação" onclick="abrirEdicaoMovimento('${m.id}')">${icon("edit",14)}</button>
+           <button class="sc-iconbtn" title="Anular movimentação" onclick="anularMovimento('${m.id}')">${icon("x",14)}</button>`;
+      const linha = `<tr ${anulado?'style="opacity:.55; text-decoration:line-through;"':""}>
         <td class="mono">${fmtDate(m.data)}</td><td>${escapeHtml(materialMap[m.materialId]?.nome||"—")}</td>
         <td>${efeitoTagHTML(tipoMap[m.tipoMovimentoId])}</td><td>${escapeHtml(setorMap[m.setorId]?.nome||"—")}</td>
         <td class="num mono">${fmtNum(m.quantidade)}</td><td class="mono">${escapeHtml(m.lote||"—")}</td>
         <td class="mono">${escapeHtml(m.documento||"—")}</td>
         <td style="text-decoration:none;">${situacaoHTML}</td>
         <td class="rowActions" style="text-decoration:none;">${acaoHTML}</td></tr>`;
+      const edicao = (MOV_EDITANDO_ID===m.id)
+        ? `<tr class="sc-rowdetail"><td colspan="9">${edicaoMovimentoHTML(m)}</td></tr>`
+        : "";
+      return linha + edicao;
     }).join("")}</tbody></table>`;
+}
+function abrirEdicaoMovimento(id){
+  MOV_EDITANDO_ID = id;
+  render();
+}
+function fecharEdicaoMovimento(){
+  MOV_EDITANDO_ID = null;
+  render();
+}
+function edicaoMovimentoHTML(m){
+  const material = DB.materiais.find(x=>x.id===m.materialId);
+  const tipo = DB.tipos.find(t=>t.id===m.tipoMovimentoId);
+  const setorItens = DB.setores.filter(s=>inRoom(s,ROOM)).slice().sort((a,b)=>a.nome.localeCompare(b.nome)).map(s=>({value:s.id, label:s.nome}));
+  // lançamentos que fazem parte de uma produção não permitem mexer na quantidade,
+  // para não quebrar a consistência do lote produzido
+  const daProducao = !!(m.producaoId && m.misturaFinaId);
+  return `
+    <div class="sc-formpanel" style="margin:0;">
+      <div class="sc-formpanelHead"><span>Editar movimentação — ${escapeHtml(material?.nome||"—")}</span>
+        <button class="sc-iconbtn" onclick="fecharEdicaoMovimento()">${icon("x",14)}</button></div>
+      <div class="sc-formpanelBody">
+        <div class="sc-hint">Tipo de movimento: <strong>${escapeHtml(tipo?.nome||"—")}</strong>. Para trocar o tipo ou o material, anule este lançamento e registre um novo.</div>
+        ${daProducao ? `<div class="sc-hint sc-hint-alert">${icon("alert",13)} Este lançamento faz parte de um lote de produção — a quantidade não pode ser alterada aqui para não quebrar a consistência do lote.</div>` : ""}
+        <div class="sc-fieldrow">
+          <label class="sc-field"><span>Data</span><input class="sc-input" type="date" id="edmv_data" value="${escapeHtml(m.data||"")}"></label>
+          <label class="sc-field"><span>Quantidade${material?.unidade?` (${escapeHtml(material.unidade)})`:""}</span><input class="sc-input" type="number" min="0" step="0.001" id="edmv_qtd" value="${m.quantidade}" ${daProducao?"disabled":""}></label>
+          <label class="sc-field"><span>Lote</span><input class="sc-input" id="edmv_lote" value="${escapeHtml(m.lote||"")}"></label>
+          <label class="sc-field"><span>Validade</span><input class="sc-input" type="date" id="edmv_validade" value="${escapeHtml(m.validade||"")}"></label>
+        </div>
+        <div class="sc-fieldrow">
+          <label class="sc-field is-wide"><span>Setor</span>${comboHTML("edmv_setor", setorItens, m.setorId||"", {placeholder:"Digite para buscar…"})}</label>
+          <label class="sc-field is-wide"><span>Documento</span><input class="sc-input" id="edmv_doc" value="${escapeHtml(m.documento||"")}"></label>
+        </div>
+        <label class="sc-field"><span>Observações</span><textarea class="sc-input" id="edmv_obs" rows="2">${escapeHtml(m.observacao||"")}</textarea></label>
+        <div id="edmv_erro"></div>
+      </div>
+      <div class="sc-formfoot">
+        <button class="sc-btn sc-btn-ghost" onclick="fecharEdicaoMovimento()">Cancelar</button>
+        <button class="sc-btn sc-btn-primary" onclick="salvarEdicaoMovimento('${m.id}')">${icon("check",14)}<span>Salvar alterações</span></button>
+      </div>
+    </div>`;
+}
+function salvarEdicaoMovimento(id){
+  const mov = DB.movimentos.find(m=>m.id===id);
+  if (!mov) return;
+  const errBox = document.getElementById("edmv_erro");
+  const daProducao = !!(mov.producaoId && mov.misturaFinaId);
+
+  const novaData = document.getElementById("edmv_data").value || mov.data;
+  const novoLote = document.getElementById("edmv_lote").value.trim();
+  const novaValidade = document.getElementById("edmv_validade").value || "";
+  const novoSetor = document.getElementById("edmv_setor").value || "";
+  const novoDoc = document.getElementById("edmv_doc").value.trim();
+  const novaObs = document.getElementById("edmv_obs").value.trim();
+
+  let novaQtd = mov.quantidade;
+  if (!daProducao){
+    novaQtd = Number(document.getElementById("edmv_qtd").value);
+    if (!novaQtd || novaQtd<=0){ errBox.innerHTML = `<div class="sc-error">${icon("alert",14)} Informe uma quantidade maior que zero.</div>`; return; }
+  }
+
+  // recalcula o efeito no estoque preservando o sinal original do lançamento
+  const sinal = mov.delta < 0 ? -1 : 1;
+  const novoDelta = round3(sinal * novaQtd);
+  const diferenca = round3(novoDelta - (mov.delta||0));
+
+  if (diferenca !== 0 && !mov.anulado){
+    const material = DB.materiais.find(x=>x.id===mov.materialId);
+    const novoEstoque = round3((material?.estoqueAtual||0) + diferenca);
+    if (novoEstoque < 0){
+      errBox.innerHTML = `<div class="sc-error">${icon("alert",14)} Esta alteração deixaria o estoque de "${escapeHtml(material?.nome||"?")}" negativo (${fmtNum(novoEstoque)}). Ajuste a quantidade.</div>`;
+      return;
+    }
+    DB.materiais = DB.materiais.map(x => x.id===mov.materialId ? {...x, estoqueAtual: novoEstoque} : x);
+    persist("materiais");
+  }
+
+  DB.movimentos = DB.movimentos.map(m => m.id===id ? {
+    ...m,
+    data: novaData, quantidade: novaQtd, delta: novoDelta,
+    lote: novoLote, validade: novaValidade, setorId: novoSetor,
+    documento: novoDoc, observacao: novaObs,
+    editadoEm: new Date().toISOString(),
+  } : m);
+  persist("movimentos");
+  MOV_EDITANDO_ID = null;
+  render();
+}
+function atualizarHistoricoMovimentos(){
+  // as duas telas (Operação e Relatórios) mostram o mesmo histórico — atualiza a que estiver aberta
+  const wrapRelatorio = document.getElementById("relatorioMovWrap");
+  if (wrapRelatorio){ wrapRelatorio.innerHTML = movTableHTML(filterMovs()); return; }
+  render();
 }
 function renderRelatorioMov(){
   const wrap = document.getElementById("relatorioMovWrap");
@@ -4814,11 +4946,11 @@ function misturasRelatorioHTML(){
       emptyHTML('Nenhuma mistura fina cadastrada ainda. Cadastre em "Misturas Finas", dentro de Cadastros.'));
   }
 
-  const setorOptions = `<option value="">Todos os setores</option>` + [...DB.setores].sort((a,b)=>a.nome.localeCompare(b.nome)).map(s=>`<option value="${s.id}">${escapeHtml(s.nome)}</option>`).join("");
+  const setorItensMfRel = [...DB.setores].sort((a,b)=>a.nome.localeCompare(b.nome)).map(s=>({value:s.id, label:s.nome}));
   const toolbar = `
     <div class="sc-toolbar">
       <div class="sc-search">${icon("search")}<input id="mfRelSearch" oninput="renderMisturasRelatorioTable()" placeholder="Buscar por nome ou código…"></div>
-      <select class="sc-input" id="mfRelFiltroSetor" onchange="renderMisturasRelatorioTable()" style="max-width:220px;">${setorOptions}</select>
+      ${comboHTML("mfRelFiltroSetor", setorItensMfRel, document.getElementById("mfRelFiltroSetor")?.value||"", {placeholder:"Todos os setores", style:"max-width:220px;", onChange:()=>renderMisturasRelatorioTable()})}
       <select class="sc-input" id="mfRelOrdenar" onchange="renderMisturasRelatorioTable()" style="max-width:200px;">
         <option value="nome_asc">Nome (A-Z)</option>
         <option value="nome_desc">Nome (Z-A)</option>
