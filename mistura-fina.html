@@ -66,6 +66,7 @@
   .sc-navitem svg{ flex-shrink:0; }
   .sc-navbadge{ margin-left:auto; background: var(--danger); color: #fff; font-size:10px; padding:1px 6px; border-radius:8px; }
   .sc-sidebar-foot{ margin-top:auto; font-size:10px; color: #8AA3C2; padding: 12px 8px 2px; border-top: 1px solid rgba(255,255,255,.12); line-height:1.5; display:flex; flex-direction:column; gap:8px; }
+  .sc-versaotag{ font-size:9px; color:#5C7A9C; letter-spacing:.3px; opacity:.85; }
   .sc-filenote{ font-size:10px; color:#8AA3C2; line-height:1.5; }
   .sc-filenote.is-ok{ color:#7FD6A8; display:flex; align-items:center; gap:5px; font-weight:600; }
   .sc-filebtn{ display:flex; align-items:center; gap:6px; width:100%; text-align:left; background: rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.14); color:#EAF1FA; font-family:inherit; font-size:10.5px; padding:6px 8px; border-radius:6px; cursor:pointer; }
@@ -186,6 +187,8 @@
    caso contrário, localStorage do navegador (uso independente).
 ===================================================================== */
 
+const APP_VERSION = "1.0";
+const APP_VERSION_DATA = "2026-09-28";
 const STORAGE_PREFIX = "biosyn_estoque_mistura_fina";
 const HAS_CLAUDE_STORAGE = (typeof window.storage !== "undefined");
 
@@ -198,11 +201,6 @@ async function storageSet(key, value){
   if (HAS_CLAUDE_STORAGE){ try { return await window.storage.set(key, value); } catch(e){ console.error(e); return null; } }
   localStorage.setItem(key, value);
   return { key, value };
-}
-async function storageDelete(key){
-  if (HAS_CLAUDE_STORAGE){ try { return await window.storage.delete(key); } catch(e){ return null; } }
-  localStorage.removeItem(key);
-  return null;
 }
 
 /* ------------------------------- helpers ------------------------------- */
@@ -1310,29 +1308,6 @@ async function desconectarArquivoDados(){
   await idbDelete("dataFile");
   render();
 }
-async function resetarDadosCompleto(){
-  const passo1 = confirm("Isso vai apagar TODOS os dados cadastrados neste painel — materiais, misturas finas, movimentações, colaboradores e setores — e voltar às configurações padrão de fábrica. Esta ação não pode ser desfeita. Deseja continuar?");
-  if (!passo1) return;
-  const passo2 = confirm("Confirmação final: tem certeza que quer apagar todos os dados de teste e começar do zero?");
-  if (!passo2) return;
-
-  if (DATA_FILE_HANDLE || PENDING_FILE_HANDLE){
-    await desconectarArquivoDados();
-  }
-
-  const chaves = [
-    "materiais","categorias","unidades","setores","tipos","movimentos","colaboradores","misturasFinas","faixasPesagem","faixasValidade","parametros",
-    "unidades_padrao_v2","categorias_padrao_v3","categoria_semiacabado_v1",
-    "setores_sala_base_v1","setor_responsavel_colaborador_v1","mistura_setor_v1","mistura_percentual_v1",
-    "remover_entrega_individual_v1","tipos_producao_v1","tipos_producao_envio_v1","tipos_laboratorio_v1",
-    "tipos_baixa_interna_v1","tipos_efeitos_v3","materiais_codigo_barras_v1",
-  ];
-  for (const k of chaves){
-    await storageDelete(`${STORAGE_PREFIX}:${k}`);
-  }
-  alert("Dados apagados. O painel vai recarregar do zero, pronto para o uso real.");
-  window.location.reload();
-}
 async function escreverArquivoDados(){
   if (!DATA_FILE_HANDLE) return;
   try{
@@ -1723,7 +1698,7 @@ function sidebarHTML(){
     <div class="sc-sidebar-foot">
       <div>${HAS_CLAUDE_STORAGE ? "Registro mantido no armazenamento deste chat." : "Registro salvo automaticamente neste navegador."}</div>
       ${fileStatusHTML()}
-      <button class="sc-filebtn" onclick="resetarDadosCompleto()">Resetar dados de teste</button>
+      <div class="sc-versaotag" title="Data de referência da versão: ${APP_VERSION_DATA}">Versão ${APP_VERSION}</div>
     </div>
   </nav>`;
 }

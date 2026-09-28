@@ -66,6 +66,7 @@
   .sc-navitem svg{ flex-shrink:0; }
   .sc-navbadge{ margin-left:auto; background: var(--danger); color: #fff; font-size:10px; padding:1px 6px; border-radius:8px; }
   .sc-sidebar-foot{ margin-top:auto; font-size:10px; color: #8AA3C2; padding: 12px 8px 2px; border-top: 1px solid rgba(255,255,255,.12); line-height:1.5; display:flex; flex-direction:column; gap:8px; }
+  .sc-versaotag{ font-size:9px; color:#5C7A9C; letter-spacing:.3px; opacity:.85; }
   .sc-filenote{ font-size:10px; color:#8AA3C2; line-height:1.5; }
   .sc-filenote.is-ok{ color:#7FD6A8; display:flex; align-items:center; gap:5px; font-weight:600; }
   .sc-filebtn{ display:flex; align-items:center; gap:6px; width:100%; text-align:left; background: rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.14); color:#EAF1FA; font-family:inherit; font-size:10.5px; padding:6px 8px; border-radius:6px; cursor:pointer; }
@@ -113,6 +114,7 @@
   .rowActions{ display:flex; gap:4px; justify-content:flex-end; white-space:nowrap; }
 
   .sc-tag{ display:inline-block; padding:2px 9px; border-radius:20px; font-size:10.5px; font-weight:600; border:1px solid transparent; white-space:nowrap; }
+  .sc-tag.is-tagativa{ outline:2px solid var(--navy); outline-offset:1px; font-weight:800; }
   .tag-entrada{ color: var(--accent); background: #EAF2FA; }
   .tag-saida{ color: var(--danger); background: var(--danger-bg); }
   .tag-ajuste{ color: var(--amber); background: var(--amber-bg); }
@@ -184,6 +186,8 @@
    caso contrário, localStorage do navegador (uso independente).
 ===================================================================== */
 
+const APP_VERSION = "1.0";
+const APP_VERSION_DATA = "2026-09-28";
 const STORAGE_PREFIX = "biosyn_estoque";
 const HAS_CLAUDE_STORAGE = (typeof window.storage !== "undefined");
 
@@ -218,6 +222,45 @@ function roomLabel(room){
   const r = ROOMS.find(x=>x.id===room);
   if (r) return `Sala de ${r.label}`;
   return "Visão Geral — Todas as Salas";
+}
+/* ---------- seletor com busca (combobox) ----------
+   Campo de texto com sugestões filtradas conforme a digitação; mantém um input escondido
+   com o MESMO id do antigo <select>, para que as leituras de valor continuem iguais. */
+const COMBO_REG = {};
+function comboHTML(id, items, selectedValue, opts){
+  opts = opts || {};
+  COMBO_REG[id] = { items, onChange: opts.onChange || null };
+  const sel = items.find(i => String(i.value) === String(selectedValue==null?"":selectedValue));
+  const listId = "dl_" + String(id).replace(/[^A-Za-z0-9_]/g, "_");
+  const estilo = opts.style ? ` style="${opts.style}"` : "";
+  return `<input class="sc-input" id="${id}__q" list="${listId}" value="${escapeHtml(sel?sel.label:"")}" placeholder="${escapeHtml(opts.placeholder||"Digite para buscar…")}" oninput="comboOnInput('${id}')" onblur="comboOnBlur('${id}')" autocomplete="off"${estilo}>
+<datalist id="${listId}">${items.map(i=>`<option value="${escapeHtml(i.label)}"></option>`).join("")}</datalist>
+<input type="hidden" id="${id}" value="${escapeHtml(sel?String(sel.value):"")}">`;
+}
+function comboOnInput(id){
+  const reg = COMBO_REG[id];
+  if (!reg) return;
+  const qEl = document.getElementById(id+"__q");
+  const hidden = document.getElementById(id);
+  if (!qEl || !hidden) return;
+  const texto = (qEl.value||"").trim();
+  const achado = reg.items.find(i => i.label.toLowerCase() === texto.toLowerCase());
+  let novo;
+  if (achado) novo = String(achado.value);
+  else if (texto === "") novo = "";
+  else return; // ainda digitando: não descarta a seleção atual no meio da busca
+  if (hidden.value === novo) return;
+  hidden.value = novo;
+  if (reg.onChange) reg.onChange(novo);
+}
+function comboOnBlur(id){
+  const reg = COMBO_REG[id];
+  if (!reg) return;
+  const qEl = document.getElementById(id+"__q");
+  const hidden = document.getElementById(id);
+  if (!qEl || !hidden) return;
+  const atual = reg.items.find(i => String(i.value) === String(hidden.value));
+  qEl.value = atual ? atual.label : "";
 }
 function setorHomeDaSala(roomId){
   if (!roomId || roomId==="todas") return null;
@@ -388,10 +431,12 @@ function seedTipos(){ return [
 let DB = { materiais: [], categorias: [], unidades: [], setores: [], tipos: [], movimentos: [], colaboradores: [] };
 let VIEW = "painel";
 let ROOM = "todas"; // 'todas' | 'controlados' | 'epis' | 'graficos'
-let OPEN_FORM = null; // { type, editId }
+let OPEN_FORM = null;
+let MOV_EDITANDO_ID = null; // { type, editId }
 let SELECTED_COLABORADOR_ID = null;
 let SELECTED_SETOR_RECEBIMENTO_ID = null;
 let ESTOQUE_EXPANDIDO = new Set();
+let ESTOQUE_FILTRO_VALIDADE = "";
 
 const mapBy = (arr) => Object.fromEntries(arr.map(x => [x.id, x]));
 
@@ -806,6 +851,13 @@ function scannerOverlayHTML(){
       <div id="scannerRegion" style="width:100%; border-radius:8px; overflow:hidden; background:#000; min-height:220px;"></div>
       <div class="sc-hint" style="margin-top:10px;">Aponte a câmera para o código de barras do material. É necessário permitir o acesso à câmera do dispositivo.</div>
       <div id="scannerError"></div>
+      <div style="border-top:1px solid var(--line); margin-top:14px; padding-top:12px;">
+        <div class="sc-hint" style="margin-bottom:6px;">Câmera indisponível ou código danificado? Digite manualmente:</div>
+        <div style="display:flex; gap:6px;">
+          <input class="sc-input" id="scannerManualInput" placeholder="Digite o código de barras" onkeydown="if(event.key==='Enter'){event.preventDefault();confirmarCodigoManual();}">
+          <button class="sc-btn sc-btn-primary" onclick="confirmarCodigoManual()">Usar</button>
+        </div>
+      </div>
     </div>
   </div>`;
 }
@@ -817,6 +869,11 @@ function openScanner(callback){
   overlay.style.display = "flex";
   const errBox = document.getElementById("scannerError");
   if (errBox) errBox.innerHTML = "";
+  const manualInput = document.getElementById("scannerManualInput");
+  if (manualInput){
+    manualInput.value = "";
+    manualInput.focus();
+  }
   requestAnimationFrame(() => {
     if (typeof Html5Qrcode === "undefined"){
       if (errBox) errBox.innerHTML = `<div class="sc-error">${icon("alert",14)} Não foi possível carregar o leitor de código de barras. Verifique sua conexão com a internet.</div>`;
@@ -856,6 +913,16 @@ function handleScanSuccess(decodedText){
   const cb = SCANNER_CALLBACK;
   closeScanner();
   if (cb) cb(decodedText);
+}
+function confirmarCodigoManual(){
+  const input = document.getElementById("scannerManualInput");
+  const code = (input?.value || "").trim();
+  if (!code){
+    const errBox = document.getElementById("scannerError");
+    if (errBox) errBox.innerHTML = `<div class="sc-error">${icon("alert",14)} Digite o código de barras antes de confirmar.</div>`;
+    return;
+  }
+  handleScanSuccess(code);
 }
 function scanForMaterialCodigo(){
   openScanner((text) => {
@@ -1025,8 +1092,8 @@ function shellHTML(){
 function sidebarHTML(){
   const materiaisNaSala = DB.materiais.filter(m => inRoom(m, ROOM));
   const alertCount = materiaisNaSala.filter(m => (m.estoqueAtual||0) <= (m.estoqueMinimo||0)).length;
-  const pendentesIndividuais = DB.movimentos.filter(m => inRoom(m, ROOM) && isEntregaIndividual(DB.tipos.find(t=>t.id===m.tipoMovimentoId)) && !m.assinatura).length;
-  const pendentesSetor = DB.movimentos.filter(m => inRoom(m, ROOM) && isTransferenciaSetor(DB.tipos.find(t=>t.id===m.tipoMovimentoId)) && !m.assinatura).length;
+  const pendentesIndividuais = DB.movimentos.filter(m => !m.anulado && inRoom(m, ROOM) && isEntregaIndividual(DB.tipos.find(t=>t.id===m.tipoMovimentoId)) && !m.assinatura).length;
+  const pendentesSetor = DB.movimentos.filter(m => !m.anulado && inRoom(m, ROOM) && isTransferenciaSetor(DB.tipos.find(t=>t.id===m.tipoMovimentoId)) && !m.assinatura).length;
   const item = (n) => {
     const bloqueado = n.id === "movimentacoes" && ROOM === "todas";
     return `
@@ -1066,6 +1133,7 @@ function sidebarHTML(){
     <div class="sc-sidebar-foot">
       <div>${HAS_CLAUDE_STORAGE ? "Registro mantido no armazenamento deste chat." : "Registro salvo automaticamente neste navegador."}</div>
       ${fileStatusHTML()}
+      <div class="sc-versaotag" title="Data de referência da versão: ${APP_VERSION_DATA}">Versão ${APP_VERSION}</div>
     </div>
   </nav>`;
 }
@@ -1210,15 +1278,24 @@ function emptyMaterial(){ return { codigo:"", codigoBarras:"", ca:"", caValidade
 
 function materiaisHTML(){
   const formArea = OPEN_FORM?.type==="material" ? materialFormHTML(OPEN_FORM.editId) : "";
+  const categoriaItens = [...new Set(DB.materiais.filter(m=>inRoom(m,ROOM)).map(m=>m.categoria).filter(Boolean))].sort((a,b)=>a.localeCompare(b)).map(c=>({value:c, label:c}));
   return pageHTML("Materiais","Itens sob controle, cadastrados para uma ou mais salas",
     `<button class="sc-btn sc-btn-primary" onclick="openForm('material')">${icon("plus")}<span>Novo material</span></button>`, `
     <div class="sc-toolbar">
       <div class="sc-search">${icon("search")}<input id="materiaisSearch" oninput="renderMateriaisTable()" placeholder="Buscar por código, nome ou categoria…"></div>
+      ${comboHTML("materiaisFiltroCategoria", categoriaItens, document.getElementById("materiaisFiltroCategoria")?.value||"", {placeholder:"Todas as categorias", style:"max-width:200px;", onChange:()=>renderMateriaisTable()})}
       ${ROOM==="todas" ? `<select class="sc-input" id="materiaisEscopoFiltro" onchange="renderMateriaisTable()" style="max-width:230px;">
         <option value="">Todas as visibilidades</option>
         <option value="todas">Somente "todas as salas"</option>
         ${ROOMS.map(r=>`<option value="${r.id}">${escapeHtml(r.label)}</option>`).join("")}
       </select>` : ""}
+      <select class="sc-input" id="materiaisOrdenar" onchange="renderMateriaisTable()" style="max-width:200px;">
+        <option value="nome_asc">Nome (A-Z)</option>
+        <option value="nome_desc">Nome (Z-A)</option>
+        <option value="codigo_asc">Código</option>
+        <option value="estoque_desc">Estoque (maior)</option>
+        <option value="estoque_asc">Estoque (menor)</option>
+      </select>
     </div>
     <div id="materialFormWrap">${formArea}</div>
     <div class="sc-tablewrap" id="materiaisTableWrap">${materiaisTableHTML(filterMateriaisList())}</div>
@@ -1227,12 +1304,23 @@ function materiaisHTML(){
 function filterMateriaisList(){
   const q = (document.getElementById("materiaisSearch")?.value || "").toLowerCase();
   const esc = document.getElementById("materiaisEscopoFiltro")?.value || "";
-  return DB.materiais.filter(m => {
+  const categoria = document.getElementById("materiaisFiltroCategoria")?.value || "";
+  const ordenar = document.getElementById("materiaisOrdenar")?.value || "nome_asc";
+  let lista = DB.materiais.filter(m => {
     if (!inRoom(m, ROOM)) return false;
     if (esc === "todas" && normalizeEscopo(m.escopo).length !== ROOMS.length) return false;
     if (esc && esc !== "todas" && !normalizeEscopo(m.escopo).includes(esc)) return false;
+    if (categoria && m.categoria !== categoria) return false;
     return `${m.codigo} ${m.codigoBarras} ${m.nome} ${m.categoria}`.toLowerCase().includes(q);
   });
+  const cmp = {
+    nome_asc: (a,b)=>a.nome.localeCompare(b.nome),
+    nome_desc: (a,b)=>b.nome.localeCompare(a.nome),
+    codigo_asc: (a,b)=>(a.codigo||"").localeCompare(b.codigo||"", undefined, {numeric:true}),
+    estoque_desc: (a,b)=>(b.estoqueAtual||0)-(a.estoqueAtual||0),
+    estoque_asc: (a,b)=>(a.estoqueAtual||0)-(b.estoqueAtual||0),
+  }[ordenar];
+  return lista.slice().sort(cmp);
 }
 function renderMateriaisTable(){
   const wrap = document.getElementById("materiaisTableWrap");
@@ -1261,8 +1349,8 @@ function materiaisTableHTML(list){
 }
 function materialFormHTML(editId){
   const m = editId ? DB.materiais.find(x=>x.id===editId) : (() => { const e = emptyMaterial(); e.escopo = ROOM==="todas"?[...ALL_ROOM_IDS]:[ROOM]; return e; })();
-  const categoriaOptions = DB.categorias.filter(c=>inRoom(c,ROOM)).length===0?`<option value="">Cadastre uma categoria</option>`:DB.categorias.filter(c=>inRoom(c,ROOM)).map(c=>`<option value="${escapeHtml(c.nome)}" ${m?.categoria===c.nome?"selected":""}>${escapeHtml(c.nome)}</option>`).join("");
-  const unidadeOptions = DB.unidades.filter(u=>inRoom(u,ROOM)).length===0?`<option value="">Cadastre uma unidade</option>`:DB.unidades.filter(u=>inRoom(u,ROOM)).map(u=>`<option value="${escapeHtml(u.nome)}" ${m?.unidade===u.nome?"selected":""}>${escapeHtml(u.nome)}</option>`).join("");
+  const categoriaItensForm = DB.categorias.filter(x=>inRoom(x,ROOM)).slice().sort((a,b)=>a.nome.localeCompare(b.nome)).map(x=>({value:x.nome, label:x.nome}));
+  const unidadeItensForm = DB.unidades.filter(u=>inRoom(u,ROOM)).slice().sort((a,b)=>a.nome.localeCompare(b.nome)).map(u=>({value:u.nome, label:u.nome}));
   return `
   <div class="sc-formpanel">
     <div class="sc-formpanelHead"><span>${editId?"Editar material":"Novo material"}</span>
@@ -1282,8 +1370,8 @@ function materialFormHTML(editId){
         <label class="sc-field is-wide"><span>Nome <span style="color:var(--danger);">*</span></span><input class="sc-input" id="f_nome" value="${escapeHtml(m?.nome||"")}" placeholder="Ex.: Morfina 10mg/mL ampola"></label>
       </div>
       <div class="sc-fieldrow">
-        <label class="sc-field"><span>Categoria</span><select class="sc-input" id="f_categoria">${categoriaOptions}</select></label>
-        <label class="sc-field"><span>Unidade</span><select class="sc-input" id="f_unidade">${unidadeOptions}</select></label>
+        <label class="sc-field"><span>Categoria</span>${comboHTML("f_categoria", categoriaItensForm, m?.categoria||"", {placeholder:"Digite para buscar…"})}</label>
+        <label class="sc-field"><span>Unidade</span>${comboHTML("f_unidade", unidadeItensForm, m?.unidade||"", {placeholder:"Digite para buscar…"})}</label>
         <label class="sc-field"><span>Estoque mínimo</span><input class="sc-input" type="number" min="0" step="0.001" id="f_min" value="${m?.estoqueMinimo ?? 0}"></label>
         <label class="sc-field"><span>Nº do CA (EPI)</span><input class="sc-input" id="f_ca" value="${escapeHtml(m?.ca||"")}" placeholder="Ex.: 12345"></label>
         <label class="sc-field"><span>Validade do CA</span><input class="sc-input" type="date" id="f_caValidade" value="${escapeHtml(m?.caValidade||"")}"></label>
@@ -1368,22 +1456,31 @@ function imprimirEtiquetaMaterialCadastro(materialId){
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.12.3/JsBarcode.all.min.js"><\/script>
 <style>
   * { box-sizing: border-box; }
-  body{ font-family: Arial, Helvetica, sans-serif; color:#16233A; padding:16px; margin:0; }
-  .etiqueta{ width:300px; border:1px solid #999; border-radius:6px; padding:12px; text-align:center; }
-  .et-marca{ font-size:9px; letter-spacing:.4px; color:#666; }
-  .et-nome{ font-size:14px; font-weight:bold; margin-top:4px; }
-  .et-codigo{ font-size:10px; color:#555; margin-bottom:6px; }
-  svg{ width:100%; }
-  .no-print{ margin-top:16px; text-align:center; }
+  @page { size: 6cm 3.6cm; margin: 0; }
+  body{ font-family: Arial, Helvetica, sans-serif; color:#16233A; margin:0; background:#e9edf2; }
+  .etiqueta{
+    width:6cm; height:3.6cm; padding:2mm 3mm; border:1px solid #999;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center;
+    overflow:hidden; background:#fff; margin:6px auto;
+  }
+  .et-marca{ font-size:6px; letter-spacing:.4px; color:#666; line-height:1; }
+  .et-nome{ font-size:9px; font-weight:bold; margin-top:1mm; line-height:1.15; max-height:2.3em; overflow:hidden; }
+  .et-codigo{ font-size:6.5px; color:#555; margin-top:0.5mm; }
+  svg{ width:100%; max-height:1.4cm; margin-top:1mm; }
+  .no-print{ margin:14px auto; text-align:center; }
   .no-print button{ padding:9px 18px; font-size:13px; cursor:pointer; border-radius:6px; border:1px solid #173a7a; background:#173a7a; color:#fff; }
-  @media print { .no-print{ display:none; } body{ padding:0; } }
+  @media print {
+    .no-print{ display:none; }
+    body{ background:#fff; }
+    .etiqueta{ border:none; margin:0; }
+  }
 </style></head><body>
   <div class="etiqueta">
     <div class="et-marca">BIOSYN</div>
     <div class="et-nome">${escapeHtml(material.nome)}</div>
     <div class="et-codigo">${escapeHtml(material.codigo||"")}</div>
     <svg id="barcode"></svg>
-    <div id="barcodeErro" style="display:none; color:#b3261e; font-size:11px; margin-top:6px;"></div>
+    <div id="barcodeErro" style="display:none; color:#b3261e; font-size:8px; margin-top:1mm;"></div>
   </div>
   <div class="no-print"><button onclick="window.print()">Imprimir</button></div>
   <script>
@@ -1391,7 +1488,7 @@ function imprimirEtiquetaMaterialCadastro(materialId){
       var erroBox = document.getElementById("barcodeErro");
       try {
         if (typeof JsBarcode === "undefined") throw new Error("Biblioteca de código de barras não carregou. Verifique sua conexão com a internet e tente novamente.");
-        JsBarcode("#barcode", ${JSON.stringify(material.codigoBarras)}, { format:"CODE128", displayValue:true, fontSize:14, height:50, margin:6 });
+        JsBarcode("#barcode", ${JSON.stringify(material.codigoBarras)}, { format:"CODE128", displayValue:true, fontSize:9, height:26, margin:2 });
       } catch(e){
         erroBox.style.display = "block";
         erroBox.textContent = e && e.message ? e.message : "Não foi possível gerar o código de barras.";
@@ -1548,10 +1645,26 @@ function deleteUnidade(id){
 /* ============================ CADASTRO: SETORES ============================ */
 function setoresHTML(){
   const formArea = OPEN_FORM?.type==="setor" ? setorFormHTML(OPEN_FORM.editId) : "";
-  const list = DB.setores.filter(s => inRoom(s, ROOM));
+  return pageHTML("Setores","Áreas que recebem ou custodiam materiais — em geral, opções gerais válidas para ambas as salas",
+    `<button class="sc-btn sc-btn-primary" onclick="openForm('setor')">${icon("plus")}<span>Novo setor</span></button>`, `
+    <div class="sc-toolbar">
+      <div class="sc-search">${icon("search")}<input id="setoresSearch" oninput="renderSetoresTable()" placeholder="Buscar por nome ou responsável…"></div>
+      <select class="sc-input" id="setoresFiltroResp" onchange="renderSetoresTable()" style="max-width:220px;">
+        <option value="">Todos</option>
+        <option value="com">Com responsável</option>
+        <option value="sem">Sem responsável</option>
+      </select>
+      <select class="sc-input" id="setoresOrdenar" onchange="renderSetoresTable()" style="max-width:200px;">
+        <option value="nome_asc">Nome (A-Z)</option>
+        <option value="nome_desc">Nome (Z-A)</option>
+      </select>
+    </div>
+    ${formArea}<div class="sc-tablewrap" id="setoresTableWrap">${setoresTableHTML(filterSetoresList())}</div>`);
+}
+function setoresTableHTML(list){
   const colaboradorMap = mapBy(DB.colaboradores);
-  const body = list.length===0 ? emptyHTML("Nenhum setor cadastrado ainda.") : `
-    <table class="sc-table"><thead><tr><th>Setor</th><th>Responsável</th><th>Base da sala</th><th>Visibilidade</th><th></th></tr></thead>
+  if (list.length===0) return emptyHTML(DB.setores.filter(s=>inRoom(s,ROOM)).length===0 ? "Nenhum setor cadastrado ainda." : "Nenhum setor encontrado para os filtros selecionados.");
+  return `<table class="sc-table"><thead><tr><th>Setor</th><th>Responsável</th><th>Base da sala</th><th>Visibilidade</th><th></th></tr></thead>
     <tbody>${list.map(s=>`
       <tr><td>${escapeHtml(s.nome)}</td><td>${escapeHtml(colaboradorMap[s.responsavelId]?.nome||"—")}</td>
       <td>${s.salaBase ? `<span class="sc-tag tag-${s.salaBase}">${escapeHtml(ROOMS.find(r=>r.id===s.salaBase)?.label||s.salaBase)}</span>` : "—"}</td>
@@ -1560,15 +1673,30 @@ function setoresHTML(){
         <button class="sc-iconbtn" title="Editar" onclick="openForm('setor','${s.id}')">${icon("edit",14)}</button>
         <button class="sc-iconbtn" title="Excluir" onclick="deleteSetor('${s.id}')">${icon("trash",14)}</button>
       </td></tr>`).join("")}</tbody></table>`;
-  return pageHTML("Setores","Áreas que recebem ou custodiam materiais — em geral, opções gerais válidas para ambas as salas",
-    `<button class="sc-btn sc-btn-primary" onclick="openForm('setor')">${icon("plus")}<span>Novo setor</span></button>`,
-    `${formArea}<div class="sc-tablewrap">${body}</div>`);
+}
+function filterSetoresList(){
+  const colaboradorMap = mapBy(DB.colaboradores);
+  const q = (document.getElementById("setoresSearch")?.value || "").toLowerCase();
+  const filtroResp = document.getElementById("setoresFiltroResp")?.value || "";
+  const ordenar = document.getElementById("setoresOrdenar")?.value || "nome_asc";
+  let lista = DB.setores.filter(s => {
+    if (!inRoom(s, ROOM)) return false;
+    if (filtroResp==="com" && !s.responsavelId) return false;
+    if (filtroResp==="sem" && s.responsavelId) return false;
+    return `${s.nome} ${colaboradorMap[s.responsavelId]?.nome||""}`.toLowerCase().includes(q);
+  });
+  const cmp = ordenar==="nome_desc" ? (a,b)=>b.nome.localeCompare(a.nome) : (a,b)=>a.nome.localeCompare(b.nome);
+  return lista.slice().sort(cmp);
+}
+function renderSetoresTable(){
+  const wrap = document.getElementById("setoresTableWrap");
+  if (wrap) wrap.innerHTML = setoresTableHTML(filterSetoresList());
 }
 function setorFormHTML(editId){
   const s = editId ? DB.setores.find(x=>x.id===editId) : null;
   const escopoPadrao = s ? s.escopo : (ROOM==="todas" ? [...ALL_ROOM_IDS] : [ROOM]);
   const salaBaseOptions = `<option value="">Nenhuma (setor de destino comum)</option>` + ROOMS.map(r=>`<option value="${r.id}" ${s?.salaBase===r.id?"selected":""}>${escapeHtml(r.label)}</option>`).join("");
-  const responsavelOptions = `<option value="">Nenhum</option>` + DB.colaboradores.filter(c=>inRoom(c,ROOM)).map(c=>`<option value="${c.id}" ${s?.responsavelId===c.id?"selected":""}>${escapeHtml(c.nome)}</option>`).join("");
+  const responsavelItens = DB.colaboradores.filter(x=>inRoom(x,ROOM)).slice().sort((a,b)=>a.nome.localeCompare(b.nome)).map(x=>({value:x.id, label:x.nome}));
   return `
   <div class="sc-formpanel">
     <div class="sc-formpanelHead"><span>${s?"Editar setor":"Novo setor"}</span>
@@ -1576,7 +1704,7 @@ function setorFormHTML(editId){
     <div class="sc-formpanelBody">
       <div class="sc-fieldrow">
         <label class="sc-field is-wide"><span>Nome do setor</span><input class="sc-input" id="f_snome" value="${escapeHtml(s?.nome||"")}" placeholder="Ex.: Centro Cirúrgico"></label>
-        <label class="sc-field is-wide"><span>Responsável (colaborador cadastrado)</span><select class="sc-input" id="f_sresp">${responsavelOptions}</select></label>
+        <label class="sc-field is-wide"><span>Responsável (colaborador cadastrado)</span>${comboHTML("f_sresp", responsavelItens, s?.responsavelId||"", {placeholder:"Digite para buscar…"})}</label>
       </div>
       ${DB.colaboradores.length===0 ? `<div class="sc-hint">Nenhum colaborador cadastrado ainda — cadastre em "Colaboradores" para poder vinculá-lo aqui.</div>` : ""}
       <div class="sc-fieldrow">
@@ -1616,24 +1744,56 @@ function deleteSetor(id){
 /* ============================ CADASTRO: COLABORADORES ============================ */
 function colaboradoresHTML(){
   const formArea = OPEN_FORM?.type==="colaborador" ? colaboradorFormHTML(OPEN_FORM.editId) : "";
+  const setorItens = DB.setores.filter(s=>inRoom(s,ROOM)).slice().sort((a,b)=>a.nome.localeCompare(b.nome)).map(s=>({value:s.id, label:s.nome}));
+  return pageHTML("Colaboradores","Pessoas cadastradas para uso em entregas individuais e como responsáveis de setor",
+    `<button class="sc-btn sc-btn-primary" onclick="openForm('colaborador')">${icon("plus")}<span>Novo colaborador</span></button>`, `
+    <div class="sc-toolbar">
+      <div class="sc-search">${icon("search")}<input id="colaboradoresSearch" oninput="renderColaboradoresTable()" placeholder="Buscar por nome…"></div>
+      ${comboHTML("colaboradoresFiltroSetor", setorItens, document.getElementById("colaboradoresFiltroSetor")?.value||"", {placeholder:"Todos os setores", style:"max-width:220px;", onChange:()=>renderColaboradoresTable()})}
+      <select class="sc-input" id="colaboradoresOrdenar" onchange="renderColaboradoresTable()" style="max-width:200px;">
+        <option value="nome_asc">Nome (A-Z)</option>
+        <option value="nome_desc">Nome (Z-A)</option>
+        <option value="setor_asc">Setor</option>
+      </select>
+    </div>
+    ${formArea}<div class="sc-tablewrap" id="colaboradoresTableWrap">${colaboradoresTableHTML(filterColaboradoresList())}</div>`);
+}
+function colaboradoresTableHTML(list){
   const setorMap = mapBy(DB.setores);
-  const list = DB.colaboradores.filter(c => inRoom(c, ROOM));
-  const body = list.length===0 ? emptyHTML("Nenhum colaborador cadastrado ainda.") : `
-    <table class="sc-table"><thead><tr><th>Nome</th><th>Setor</th><th>Visibilidade</th><th></th></tr></thead>
+  if (list.length===0) return emptyHTML(DB.colaboradores.filter(c=>inRoom(c,ROOM)).length===0 ? "Nenhum colaborador cadastrado ainda." : "Nenhum colaborador encontrado para os filtros selecionados.");
+  return `<table class="sc-table"><thead><tr><th>Nome</th><th>Setor</th><th>Visibilidade</th><th></th></tr></thead>
     <tbody>${list.map(c=>`
       <tr><td>${escapeHtml(c.nome)}</td><td>${escapeHtml(setorMap[c.setorId]?.nome||"—")}</td><td>${escopoBadgesHTML(c.escopo)}</td>
       <td class="rowActions">
         <button class="sc-iconbtn" title="Editar" onclick="openForm('colaborador','${c.id}')">${icon("edit",14)}</button>
         <button class="sc-iconbtn" title="Excluir" onclick="deleteColaborador('${c.id}')">${icon("trash",14)}</button>
       </td></tr>`).join("")}</tbody></table>`;
-  return pageHTML("Colaboradores","Pessoas cadastradas para uso em entregas individuais e como responsáveis de setor",
-    `<button class="sc-btn sc-btn-primary" onclick="openForm('colaborador')">${icon("plus")}<span>Novo colaborador</span></button>`,
-    `${formArea}<div class="sc-tablewrap">${body}</div>`);
+}
+function filterColaboradoresList(){
+  const setorMap = mapBy(DB.setores);
+  const q = (document.getElementById("colaboradoresSearch")?.value || "").toLowerCase();
+  const setorId = document.getElementById("colaboradoresFiltroSetor")?.value || "";
+  const ordenar = document.getElementById("colaboradoresOrdenar")?.value || "nome_asc";
+  let lista = DB.colaboradores.filter(c => {
+    if (!inRoom(c, ROOM)) return false;
+    if (setorId && c.setorId !== setorId) return false;
+    return c.nome.toLowerCase().includes(q);
+  });
+  const cmp = {
+    nome_asc: (a,b)=>a.nome.localeCompare(b.nome),
+    nome_desc: (a,b)=>b.nome.localeCompare(a.nome),
+    setor_asc: (a,b)=>(setorMap[a.setorId]?.nome||"").localeCompare(setorMap[b.setorId]?.nome||""),
+  }[ordenar];
+  return lista.slice().sort(cmp);
+}
+function renderColaboradoresTable(){
+  const wrap = document.getElementById("colaboradoresTableWrap");
+  if (wrap) wrap.innerHTML = colaboradoresTableHTML(filterColaboradoresList());
 }
 function colaboradorFormHTML(editId){
   const c = editId ? DB.colaboradores.find(x=>x.id===editId) : null;
   const escopoPadrao = c ? c.escopo : (ROOM==="todas" ? [...ALL_ROOM_IDS] : [ROOM]);
-  const setorOptions = `<option value="">Nenhum</option>` + DB.setores.filter(s=>inRoom(s,ROOM)).map(s=>`<option value="${s.id}" ${c?.setorId===s.id?"selected":""}>${escapeHtml(s.nome)}</option>`).join("");
+  const setorItensColab = DB.setores.filter(s=>inRoom(s,ROOM)).slice().sort((a,b)=>a.nome.localeCompare(b.nome)).map(s=>({value:s.id, label:s.nome}));
   return `
   <div class="sc-formpanel">
     <div class="sc-formpanelHead"><span>${c?"Editar colaborador":"Novo colaborador"}</span>
@@ -1641,7 +1801,7 @@ function colaboradorFormHTML(editId){
     <div class="sc-formpanelBody">
       <div class="sc-fieldrow">
         <label class="sc-field is-wide"><span>Nome do colaborador</span><input class="sc-input" id="f_colnome" value="${escapeHtml(c?.nome||"")}" placeholder="Nome completo"></label>
-        <label class="sc-field is-wide"><span>Setor</span><select class="sc-input" id="f_colsetor">${setorOptions}</select></label>
+        <label class="sc-field is-wide"><span>Setor</span>${comboHTML("f_colsetor", setorItensColab, c?.setorId||"", {placeholder:"Digite para buscar…"})}</label>
       </div>
       <label class="sc-field is-wide"><span>Visível em</span>
         <div style="display:flex; flex-direction:column; gap:2px; border:1px solid var(--line); border-radius:7px; padding:8px 10px;">${escopoChecklistHTML("f_colescopo", escopoPadrao)}</div>
@@ -1768,7 +1928,7 @@ function getLotesEmEstoque(materialId){
   const tipoMap = mapBy(DB.tipos);
   const porLote = {};
   DB.movimentos
-    .filter(m => m.materialId === materialId)
+    .filter(m => m.materialId === materialId && !m.anulado)
     .slice()
     .sort((a,b) => String(a.data||"").localeCompare(String(b.data||"")))
     .forEach(m => {
@@ -1904,9 +2064,9 @@ function setorFieldHTML(tipo, preselectedSetorId){
   }
   const home = setorHomeDaSala(ROOM);
   const setoresNaSala = DB.setores.filter(s => inRoom(s, ROOM) && (!home || s.id !== home.id));
-  const options = `<option value="">Selecione…</option>` + setoresNaSala.map(s=>`<option value="${s.id}" ${s.id===preselectedSetorId?"selected":""}>${escapeHtml(s.nome)}</option>`).join("");
+  const setorItensCampo = setoresNaSala.slice().sort((a,b)=>a.nome.localeCompare(b.nome)).map(s=>({value:s.id, label:s.nome}));
   return `<label class="sc-field is-wide"><span>Setor de destino</span>
-    <select class="sc-input" id="mv_setor" onchange="onMovSetorChange()">${options}</select>
+    ${comboHTML("mv_setor", setorItensCampo, preselectedSetorId||"", {placeholder:"Digite para buscar o setor…", onChange:()=>onMovSetorChange()})}
     <span class="sc-hint">A saída é descontada automaticamente do estoque de ${home?escapeHtml(home.nome):"desta sala"}.</span>
   </label>`;
 }
@@ -1924,47 +2084,36 @@ function movimentacoesHTML(){
   const materialMap = mapBy(DB.materiais), setorMap = mapBy(DB.setores), tipoMap = mapBy(DB.tipos);
   const movimentosNaSala = DB.movimentos.filter(m => inRoom(m, ROOM));
 
-  const mostrarColunaVisibilidade = ROOM === "todas";
-  const historico = movimentosNaSala.length===0 ? emptyHTML("Nenhuma movimentação registrada ainda nesta visão.") : `
-    <div class="sc-tablewrap"><table class="sc-table">
-      <thead><tr><th>Nº</th><th>Data</th><th>Material</th><th>Tipo</th><th>Setor</th><th class="num">Qtd.</th><th>Lote</th>${mostrarColunaVisibilidade?"<th>Visibilidade</th>":""}<th></th></tr></thead>
-      <tbody>${movimentosNaSala.map((m)=>{
-        const cls = m.delta<0?"stamp-red":(m.delta>0?"stamp-blue":"");
-        const sign = m.delta>0?"+":(m.delta<0?"−":"±");
-        const numeroOriginal = DB.movimentos.length - DB.movimentos.findIndex(x=>x.id===m.id);
-        return `<tr>
-          <td class="mono">${String(numeroOriginal).padStart(4,"0")}</td>
-          <td class="mono">${fmtDate(m.data)}</td>
-          <td>${escapeHtml(materialMap[m.materialId]?.nome||"—")}</td>
-          <td>${efeitoTagHTML(tipoMap[m.tipoMovimentoId])}</td>
-          <td>${escapeHtml(setorMap[m.setorId]?.nome||"—")}</td>
-          <td class="num mono ${cls}">${sign}${fmtNum(Math.abs(m.quantidade))}</td>
-          <td class="mono">${escapeHtml(m.lote||"—")}</td>
-          ${mostrarColunaVisibilidade?`<td>${escopoBadgesHTML(m.escopo)}</td>`:""}
-          <td class="rowActions"><button class="sc-iconbtn" title="Excluir" onclick="deleteMovimento('${m.id}')">${icon("trash",14)}</button></td>
-        </tr>`;
-      }).join("")}</tbody></table></div>`;
+  // mesma tabela usada no relatório de Movimentações, para os dois históricos se comportarem igual
+  const ULTIMAS_NA_OPERACAO = 20;
+  const ultimasMovimentacoes = movimentosNaSala.slice(0, ULTIMAS_NA_OPERACAO);
+  const historico = movimentosNaSala.length===0
+    ? emptyHTML("Nenhuma movimentação registrada ainda nesta visão.")
+    : `<div class="sc-tablewrap">${movTableHTML(ultimasMovimentacoes)}</div>
+       ${movimentosNaSala.length > ULTIMAS_NA_OPERACAO
+         ? `<div class="sc-hint" style="margin-top:10px;">Mostrando as ${ULTIMAS_NA_OPERACAO} movimentações mais recentes de ${fmtNum(movimentosNaSala.length)} no total.</div>`
+         : ""}`;
 
   const materiaisNaSala = DB.materiais.filter(m => inRoom(m, ROOM));
   const tiposNaSala = DB.tipos.filter(t => inRoom(t, ROOM));
   const colaboradoresNaSala = DB.colaboradores.filter(c => inRoom(c, ROOM));
   const tipoPreSelecionado = MV_CONTINUAR_DRAFT ? DB.tipos.find(t=>t.id===MV_CONTINUAR_DRAFT.tipoMovimentoId) : null;
 
-  const codigoOptions = `<option value="">Selecione…</option>` + materiaisNaSala.filter(m=>m.codigo).map(m=>`<option value="${m.id}">${escapeHtml(m.codigo)}</option>`).join("");
-  const materialOptions = `<option value="">Selecione…</option>` + materiaisNaSala.map(m=>`<option value="${m.id}">${escapeHtml(m.nome)}</option>`).join("");
-  const tipoOptions = `<option value="">Selecione…</option>` + tiposNaSala.map(t=>`<option value="${t.id}" ${MV_CONTINUAR_DRAFT?.tipoMovimentoId===t.id?"selected":""}>${escapeHtml(t.nome)}</option>`).join("");
-  const colaboradorOptions = `<option value="">Selecione…</option>` + colaboradoresNaSala.map(c=>`<option value="${c.id}" ${MV_CONTINUAR_DRAFT?.colaboradorId===c.id?"selected":""}>${escapeHtml(c.nome)}</option>`).join("");
+  const codigoItens = materiaisNaSala.filter(m=>m.codigo).slice().sort((a,b)=>a.codigo.localeCompare(b.codigo, undefined, {numeric:true})).map(m=>({value:m.id, label:m.codigo}));
+  const materialItens = materiaisNaSala.slice().sort((a,b)=>a.nome.localeCompare(b.nome)).map(m=>({value:m.id, label:m.nome}));
+  const tipoItens = tiposNaSala.slice().sort((a,b)=>a.nome.localeCompare(b.nome)).map(t=>({value:t.id, label:t.nome}));
+  const colaboradorItens = colaboradoresNaSala.slice().sort((a,b)=>a.nome.localeCompare(b.nome)).map(x=>({value:x.id, label:x.nome}));
 
   const form = `
   <div class="sc-formpanel is-plain">
     <div class="sc-formpanelBody">
       <div class="sc-fieldrow">
         <label class="sc-field"><span>Data</span><input class="sc-input" type="date" id="mv_data" value="${todayISO()}"></label>
-        <label class="sc-field is-wide"><span>Tipo de movimento</span><select class="sc-input" id="mv_tipo" onchange="onMovTipoChange()">${tipoOptions}</select></label>
+        <label class="sc-field is-wide"><span>Tipo de movimento</span>${comboHTML("mv_tipo", tipoItens, MV_CONTINUAR_DRAFT?.tipoMovimentoId||"", {placeholder:"Digite para buscar…", onChange:()=>onMovTipoChange()})}</label>
       </div>
       <div class="sc-fieldrow">
-        <label class="sc-field"><span>Código</span><select class="sc-input" id="mv_codigo" onchange="onMovCodigoChange()">${codigoOptions}</select></label>
-        <label class="sc-field is-wide"><span>Material</span><select class="sc-input" id="mv_material" onchange="onMovMaterialChange()">${materialOptions}</select></label>
+        <label class="sc-field"><span>Código</span>${comboHTML("mv_codigo", codigoItens, "", {placeholder:"Buscar código…", onChange:()=>onMovCodigoChange()})}</label>
+        <label class="sc-field is-wide"><span>Material</span>${comboHTML("mv_material", materialItens, "", {placeholder:"Digite para buscar o material…", onChange:()=>onMovMaterialChange()})}</label>
         <label class="sc-field is-wide"><span>Localizar por código de barras</span>
           <div style="display:flex; gap:6px;">
             <input class="sc-input" id="mv_codigoBusca" placeholder="Digite ou escaneie o código" onkeydown="if(event.key==='Enter'){event.preventDefault();buscarMaterialPorCodigo();}">
@@ -1977,7 +2126,7 @@ function movimentacoesHTML(){
       <div class="sc-fieldrow">
         <label class="sc-field"><span>Quantidade</span><input class="sc-input" type="number" min="0" step="0.001" id="mv_qtd" oninput="onMovQtdChange()"></label>
         <div class="sc-fieldrow" id="mv_setorWrap" style="flex:2 1 320px;">${setorFieldHTML(tipoPreSelecionado, MV_CONTINUAR_DRAFT?.setorId)}</div>
-        <label class="sc-field is-wide"><span>Colaborador <span id="mv_colaboradorRequired" style="color:var(--danger); display:${tipoPreSelecionado && isEntregaIndividual(tipoPreSelecionado)?"inline":"none"};">(obrigatório para Entrega Individual)</span></span><select class="sc-input" id="mv_colaborador" onchange="onMovColaboradorChange()">${colaboradorOptions}</select></label>
+        <label class="sc-field is-wide"><span>Colaborador <span id="mv_colaboradorRequired" style="color:var(--danger); display:${tipoPreSelecionado && isEntregaIndividual(tipoPreSelecionado)?"inline":"none"};">(obrigatório para Entrega Individual)</span></span>${comboHTML("mv_colaborador", colaboradorItens, MV_CONTINUAR_DRAFT?.colaboradorId||"", {placeholder:"Digite para buscar…", onChange:()=>onMovColaboradorChange()})}</label>
       </div>
       <div class="sc-fieldrow" id="mv_loteWrap">${loteFieldsHTML(tipoPreSelecionado, "")}</div>
       <label class="sc-field"><span>Observações</span><textarea class="sc-input" id="mv_obs" rows="2"></textarea></label>
@@ -1991,7 +2140,9 @@ function movimentacoesHTML(){
   </div>`;
 
   return pageHTML("Movimentações", `Lançar entrada ou saída<span class="sc-roomchip">${icon(roomIcon(ROOM),11)} ${roomLabel(ROOM)}</span>`, "",
-    `${form}${sectionHTML("Histórico","clipboard","",historico)}`);
+    `${form}${sectionHTML("Histórico — últimas movimentações","clipboard",
+      `<button class="sc-btn sc-btn-ghost" onclick="nav('rel_movimentacoes')">${icon("clipboard",14)}<span>Ver histórico completo</span></button>`,
+      historico)}`);
 }
 function irParaMovimentacoesDaSala(roomId){
   ROOM = roomId;
@@ -2172,15 +2323,105 @@ function submitMovimento(continuar){
   }
   render();
 }
-function deleteMovimento(id){
-  if (!confirm("Excluir esta movimentação? O estoque será recalculado.")) return;
+function atualizarHistoricoMovimentos(){
+  // as duas telas (Operação e Relatórios) mostram o mesmo histórico — atualiza a que estiver aberta
+  const wrapRelatorio = document.getElementById("relatorioMovWrap");
+  if (wrapRelatorio){ wrapRelatorio.innerHTML = movTableHTML(filterMovs()); return; }
+  render();
+}
+function anularMovimento(id){
   const mov = DB.movimentos.find(m=>m.id===id);
-  if (mov && mov.delta){
+  if (!mov) return;
+  if (mov.anulado){ alert("Esta movimentação já está anulada."); return; }
+  if (!confirm("Anular esta movimentação? Ela deixa de contar para o estoque e para todo o painel, mas continua visível aqui, marcada como anulada.")) return;
+  if (mov.delta){
     DB.materiais = DB.materiais.map(m => m.id===mov.materialId ? {...m, estoqueAtual: round3((m.estoqueAtual||0)-mov.delta)} : m);
     persist("materiais");
   }
-  DB.movimentos = DB.movimentos.filter(m=>m.id!==id);
+  DB.movimentos = DB.movimentos.map(m => m.id===id ? { ...m, anulado:true, anuladoEm: new Date().toISOString() } : m);
   persist("movimentos");
+  atualizarHistoricoMovimentos();
+}
+function reativarMovimento(id){
+  const mov = DB.movimentos.find(m=>m.id===id);
+  if (!mov || !mov.anulado) return;
+  if (!confirm("Reativar esta movimentação? Ela volta a contar para o estoque e para todo o painel.")) return;
+  if (mov.delta){
+    DB.materiais = DB.materiais.map(m => m.id===mov.materialId ? {...m, estoqueAtual: round3((m.estoqueAtual||0)+mov.delta)} : m);
+    persist("materiais");
+  }
+  DB.movimentos = DB.movimentos.map(m => m.id===id ? { ...m, anulado:false, anuladoEm: null } : m);
+  persist("movimentos");
+  atualizarHistoricoMovimentos();
+}
+function abrirEdicaoMovimento(id){ MOV_EDITANDO_ID = id; render(); }
+function fecharEdicaoMovimento(){ MOV_EDITANDO_ID = null; render(); }
+function edicaoMovimentoHTML(m){
+  const material = DB.materiais.find(x=>x.id===m.materialId);
+  const tipo = DB.tipos.find(t=>t.id===m.tipoMovimentoId);
+  const setorItensEd = DB.setores.filter(s=>inRoom(s,ROOM)).slice().sort((a,b)=>a.nome.localeCompare(b.nome)).map(s=>({value:s.id, label:s.nome}));
+  const colabItensEd = DB.colaboradores.filter(x=>inRoom(x,ROOM)).slice().sort((a,b)=>a.nome.localeCompare(b.nome)).map(x=>({value:x.id, label:x.nome}));
+  return `
+    <div class="sc-formpanel" style="margin:0;">
+      <div class="sc-formpanelHead"><span>Editar movimentação — ${escapeHtml(material?.nome||"—")}</span>
+        <button class="sc-iconbtn" onclick="fecharEdicaoMovimento()">${icon("x",14)}</button></div>
+      <div class="sc-formpanelBody">
+        <div class="sc-hint">Tipo de movimento: <strong>${escapeHtml(tipo?.nome||"—")}</strong>. Para trocar o tipo ou o material, anule este lançamento e registre um novo.</div>
+        <div class="sc-fieldrow">
+          <label class="sc-field"><span>Data</span><input class="sc-input" type="date" id="edmv_data" value="${escapeHtml(m.data||"")}"></label>
+          <label class="sc-field"><span>Quantidade${material?.unidade?` (${escapeHtml(material.unidade)})`:""}</span><input class="sc-input" type="number" min="0" step="0.001" id="edmv_qtd" value="${m.quantidade}"></label>
+          <label class="sc-field"><span>Lote</span><input class="sc-input" id="edmv_lote" value="${escapeHtml(m.lote||"")}"></label>
+          <label class="sc-field"><span>Validade</span><input class="sc-input" type="date" id="edmv_validade" value="${escapeHtml(m.validade||"")}"></label>
+        </div>
+        <div class="sc-fieldrow">
+          <label class="sc-field is-wide"><span>Setor</span>${comboHTML("edmv_setor", setorItensEd, m.setorId||"", {placeholder:"Digite para buscar…"})}</label>
+          <label class="sc-field is-wide"><span>Colaborador</span>${comboHTML("edmv_colaborador", colabItensEd, m.colaboradorId||"", {placeholder:"Digite para buscar…"})}</label>
+          <label class="sc-field is-wide"><span>Documento</span><input class="sc-input" id="edmv_doc" value="${escapeHtml(m.documento||"")}"></label>
+        </div>
+        <label class="sc-field"><span>Observações</span><textarea class="sc-input" id="edmv_obs" rows="2">${escapeHtml(m.observacao||"")}</textarea></label>
+        <div id="edmv_erro"></div>
+      </div>
+      <div class="sc-formfoot">
+        <button class="sc-btn sc-btn-ghost" onclick="fecharEdicaoMovimento()">Cancelar</button>
+        <button class="sc-btn sc-btn-primary" onclick="salvarEdicaoMovimento('${m.id}')">${icon("check",14)}<span>Salvar alterações</span></button>
+      </div>
+    </div>`;
+}
+function salvarEdicaoMovimento(id){
+  const mov = DB.movimentos.find(m=>m.id===id);
+  if (!mov) return;
+  const errBox = document.getElementById("edmv_erro");
+  const novaQtd = Number(document.getElementById("edmv_qtd").value);
+  if (!novaQtd || novaQtd<=0){ errBox.innerHTML = `<div class="sc-error">${icon("alert",14)} Informe uma quantidade maior que zero.</div>`; return; }
+
+  const sinal = mov.delta < 0 ? -1 : 1;
+  const novoDelta = round3(sinal * novaQtd);
+  const diferenca = round3(novoDelta - (mov.delta||0));
+  if (diferenca !== 0 && !mov.anulado){
+    const material = DB.materiais.find(x=>x.id===mov.materialId);
+    const novoEstoque = round3((material?.estoqueAtual||0) + diferenca);
+    if (novoEstoque < 0){
+      errBox.innerHTML = `<div class="sc-error">${icon("alert",14)} Esta alteração deixaria o estoque de "${escapeHtml(material?.nome||"?")}" negativo (${fmtNum(novoEstoque)}). Ajuste a quantidade.</div>`;
+      return;
+    }
+    DB.materiais = DB.materiais.map(x => x.id===mov.materialId ? {...x, estoqueAtual: novoEstoque} : x);
+    persist("materiais");
+  }
+
+  DB.movimentos = DB.movimentos.map(m => m.id===id ? {
+    ...m,
+    data: document.getElementById("edmv_data").value || m.data,
+    quantidade: novaQtd, delta: novoDelta,
+    lote: document.getElementById("edmv_lote").value.trim(),
+    validade: document.getElementById("edmv_validade").value || "",
+    setorId: document.getElementById("edmv_setor").value || "",
+    colaboradorId: document.getElementById("edmv_colaborador").value || "",
+    documento: document.getElementById("edmv_doc").value.trim(),
+    observacao: document.getElementById("edmv_obs").value.trim(),
+    editadoEm: new Date().toISOString(),
+  } : m);
+  persist("movimentos");
+  MOV_EDITANDO_ID = null;
   render();
 }
 
@@ -2189,7 +2430,7 @@ let MI_FILTRO_DE = "";
 let MI_FILTRO_ATE = "";
 function materiaisIndividuaisHTML(){
   const materialMap = mapBy(DB.materiais), setorMap = mapBy(DB.setores), tipoMap = mapBy(DB.tipos);
-  const entregas = DB.movimentos.filter(m => inRoom(m, ROOM) && isEntregaIndividual(tipoMap[m.tipoMovimentoId]) && m.colaboradorId
+  const entregas = DB.movimentos.filter(m => !m.anulado && inRoom(m, ROOM) && isEntregaIndividual(tipoMap[m.tipoMovimentoId]) && m.colaboradorId
     && (!MI_FILTRO_DE || m.data >= MI_FILTRO_DE) && (!MI_FILTRO_ATE || m.data <= MI_FILTRO_ATE));
 
   const subtitle = `Entregas individuais e assinatura de recebimento<span class="sc-roomchip">${icon(roomIcon(ROOM),11)} ${roomLabel(ROOM)}</span>`;
@@ -2274,7 +2515,7 @@ function assinarEntrega(movId){
 }
 function assinarTodasPendencias(colaboradorId){
   const tipoMap = mapBy(DB.tipos);
-  const pendentes = DB.movimentos.filter(m => m.colaboradorId===colaboradorId && isEntregaIndividual(tipoMap[m.tipoMovimentoId]) && !m.assinatura);
+  const pendentes = DB.movimentos.filter(m => !m.anulado && m.colaboradorId===colaboradorId && isEntregaIndividual(tipoMap[m.tipoMovimentoId]) && !m.assinatura);
   if (pendentes.length===0){ alert("Não há pendências para assinar."); return; }
   const colaborador = DB.colaboradores.find(c=>c.id===colaboradorId);
   const pendentesIds = new Set(pendentes.map(m=>m.id));
@@ -2291,7 +2532,7 @@ let RS_FILTRO_DE = "";
 let RS_FILTRO_ATE = "";
 function recebimentosPorSetorHTML(){
   const materialMap = mapBy(DB.materiais), tipoMap = mapBy(DB.tipos), setorMap = mapBy(DB.setores), colaboradorMap = mapBy(DB.colaboradores);
-  const entregas = DB.movimentos.filter(m => inRoom(m, ROOM) && isTransferenciaSetor(tipoMap[m.tipoMovimentoId]) && m.setorId
+  const entregas = DB.movimentos.filter(m => !m.anulado && inRoom(m, ROOM) && isTransferenciaSetor(tipoMap[m.tipoMovimentoId]) && m.setorId
     && (!RS_FILTRO_DE || m.data >= RS_FILTRO_DE) && (!RS_FILTRO_ATE || m.data <= RS_FILTRO_ATE));
 
   const subtitle = `Materiais recebidos por setor, com assinatura do responsável<span class="sc-roomchip">${icon(roomIcon(ROOM),11)} ${roomLabel(ROOM)}</span>`;
@@ -2384,7 +2625,7 @@ function assinarRecebimentoSetor(movId){
 }
 function assinarTodasPendenciasSetor(setorId){
   const tipoMap = mapBy(DB.tipos);
-  const pendentes = DB.movimentos.filter(m => m.setorId===setorId && isTransferenciaSetor(tipoMap[m.tipoMovimentoId]) && !m.assinatura);
+  const pendentes = DB.movimentos.filter(m => !m.anulado && m.setorId===setorId && isTransferenciaSetor(tipoMap[m.tipoMovimentoId]) && !m.assinatura);
   if (pendentes.length===0){ alert("Não há pendências para assinar."); return; }
   const setor = DB.setores.find(s=>s.id===setorId);
   const responsavel = DB.colaboradores.find(c=>c.id===setor?.responsavelId);
@@ -2408,7 +2649,7 @@ function gerarFichaEPIColaborador(colaboradorId){
   if (!colaborador){ alert("Colaborador não encontrado."); return; }
   const setor = DB.setores.find(s=>s.id===colaborador.setorId);
   const tipoMap = mapBy(DB.tipos), materialMap = mapBy(DB.materiais);
-  const itens = DB.movimentos.filter(m => m.colaboradorId===colaboradorId && isEntregaIndividual(tipoMap[m.tipoMovimentoId])
+  const itens = DB.movimentos.filter(m => !m.anulado && m.colaboradorId===colaboradorId && isEntregaIndividual(tipoMap[m.tipoMovimentoId])
       && (!MI_FILTRO_DE || m.data >= MI_FILTRO_DE) && (!MI_FILTRO_ATE || m.data <= MI_FILTRO_ATE))
     .slice().sort((a,b)=> String(a.data||"").localeCompare(String(b.data||"")));
   abrirFichaEPI({
@@ -2431,7 +2672,7 @@ function gerarFichaEPISetor(setorId){
   if (!setor){ alert("Setor não encontrado."); return; }
   const responsavel = DB.colaboradores.find(c=>c.id===setor.responsavelId);
   const tipoMap = mapBy(DB.tipos), materialMap = mapBy(DB.materiais);
-  const itens = DB.movimentos.filter(m => m.setorId===setorId && isTransferenciaSetor(tipoMap[m.tipoMovimentoId])
+  const itens = DB.movimentos.filter(m => !m.anulado && m.setorId===setorId && isTransferenciaSetor(tipoMap[m.tipoMovimentoId])
       && (!RS_FILTRO_DE || m.data >= RS_FILTRO_DE) && (!RS_FILTRO_ATE || m.data <= RS_FILTRO_ATE))
     .slice().sort((a,b)=> String(a.data||"").localeCompare(String(b.data||"")));
   abrirFichaEPI({
@@ -2519,35 +2760,122 @@ function estoquesHTML(){
   const qtdHoje = contarStatus("hoje");
   const qtdCriticos = contarStatus("critico");
   const qtdAtencao = contarStatus("atencao");
+  const categoriaItensEstoque = [...new Set(materiaisNaSala.map(m=>m.categoria).filter(Boolean))].sort((a,b)=>a.localeCompare(b)).map(c=>({value:c, label:c}));
 
   const estoqueSection = sectionHTML("Estoque atual","boxes",
     `<button class="sc-btn sc-btn-ghost" onclick="exportEstoqueExcel()">${icon("download",14)}<span>Exportar Excel</span></button>`, `
-    ${abaixoMinimo.length>0 ? `<div class="sc-hint sc-hint-alert">${icon("alert",14)} ${abaixoMinimo.length} material(is) abaixo do estoque mínimo.</div>` : ""}
+    ${abaixoMinimo.length>0 ? `<div class="sc-hint sc-hint-alert" style="cursor:pointer;" onclick="filtrarEstoquePorSituacao('baixo')" title="Clique para ver apenas estes materiais">${icon("alert",14)} ${abaixoMinimo.length} material(is) abaixo do estoque mínimo.</div>` : ""}
     ${(qtdVencidos+qtdHoje+qtdCriticos+qtdAtencao)>0 ? `
-    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px;">
-      ${qtdVencidos>0?`<span class="sc-tag tag-vencido">${qtdVencidos} vencido(s)</span>`:""}
-      ${qtdHoje>0?`<span class="sc-tag tag-hoje">${qtdHoje} vencendo hoje</span>`:""}
-      ${qtdCriticos>0?`<span class="sc-tag tag-critico">${qtdCriticos} com menos de ${LIMITE_CRITICO_DIAS} dias</span>`:""}
-      ${qtdAtencao>0?`<span class="sc-tag tag-atencao">${qtdAtencao} com menos de ${LIMITE_ATENCAO_DIAS} dias</span>`:""}
+    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; align-items:center;">
+      ${qtdVencidos>0?`<button class="sc-tag tag-vencido ${ESTOQUE_FILTRO_VALIDADE==="vencido"?"is-tagativa":""}" style="cursor:pointer; border:none;" onclick="filtrarEstoquePorValidade('vencido')">${qtdVencidos} vencido(s)</button>`:""}
+      ${qtdHoje>0?`<button class="sc-tag tag-hoje ${ESTOQUE_FILTRO_VALIDADE==="hoje"?"is-tagativa":""}" style="cursor:pointer; border:none;" onclick="filtrarEstoquePorValidade('hoje')">${qtdHoje} vencendo hoje</button>`:""}
+      ${qtdCriticos>0?`<button class="sc-tag tag-critico ${ESTOQUE_FILTRO_VALIDADE==="critico"?"is-tagativa":""}" style="cursor:pointer; border:none;" onclick="filtrarEstoquePorValidade('critico')">${qtdCriticos} com menos de ${LIMITE_CRITICO_DIAS} dias</button>`:""}
+      ${qtdAtencao>0?`<button class="sc-tag tag-atencao ${ESTOQUE_FILTRO_VALIDADE==="atencao"?"is-tagativa":""}" style="cursor:pointer; border:none;" onclick="filtrarEstoquePorValidade('atencao')">${qtdAtencao} com menos de ${LIMITE_ATENCAO_DIAS} dias</button>`:""}
+      ${(ESTOQUE_FILTRO_VALIDADE || (document.getElementById("estoqueFiltroSituacao")?.value)) ? `<button class="sc-btn sc-btn-ghost" style="padding:2px 10px; font-size:11.5px;" onclick="limparFiltrosEstoque()">${icon("x",12)}<span>Limpar filtros</span></button>` : ""}
     </div>` : ""}
-    <div class="sc-tablewrap" id="estoqueTableWrap">${estoqueTableHTML(materiaisNaSala)}</div>
+    <div class="sc-toolbar">
+      <div class="sc-search">${icon("search")}<input id="estoqueSearch" oninput="renderEstoqueTable()" placeholder="Buscar por código ou nome…"></div>
+      ${comboHTML("estoqueFiltroCategoria", categoriaItensEstoque, document.getElementById("estoqueFiltroCategoria")?.value||"", {placeholder:"Todas as categorias", style:"max-width:200px;", onChange:()=>renderEstoqueTable()})}
+      <select class="sc-input" id="estoqueFiltroSituacao" onchange="renderEstoqueTable()" style="max-width:200px;">
+        <option value="">Todas as situações</option>
+        <option value="baixo">Abaixo do mínimo</option>
+        <option value="normal">Normal</option>
+      </select>
+      <select class="sc-input" id="estoqueFiltroValidade" onchange="onEstoqueFiltroValidadeChange(this.value)" style="max-width:220px;">
+        <option value="" ${ESTOQUE_FILTRO_VALIDADE===""?"selected":""}>Todas as validades</option>
+        <option value="vencido" ${ESTOQUE_FILTRO_VALIDADE==="vencido"?"selected":""}>Vencidos</option>
+        <option value="hoje" ${ESTOQUE_FILTRO_VALIDADE==="hoje"?"selected":""}>Vencendo hoje</option>
+        <option value="critico" ${ESTOQUE_FILTRO_VALIDADE==="critico"?"selected":""}>Menos de ${LIMITE_CRITICO_DIAS} dias</option>
+        <option value="atencao" ${ESTOQUE_FILTRO_VALIDADE==="atencao"?"selected":""}>Menos de ${LIMITE_ATENCAO_DIAS} dias</option>
+        <option value="qualquer_alerta" ${ESTOQUE_FILTRO_VALIDADE==="qualquer_alerta"?"selected":""}>Qualquer alerta de validade</option>
+        <option value="ok" ${ESTOQUE_FILTRO_VALIDADE==="ok"?"selected":""}>Sem alerta</option>
+        <option value="sem_validade" ${ESTOQUE_FILTRO_VALIDADE==="sem_validade"?"selected":""}>Sem validade informada</option>
+      </select>
+      <select class="sc-input" id="estoqueOrdenar" onchange="renderEstoqueTable()" style="max-width:200px;">
+        <option value="nome_asc">Nome (A-Z)</option>
+        <option value="nome_desc">Nome (Z-A)</option>
+        <option value="estoque_desc">Estoque (maior)</option>
+        <option value="estoque_asc">Estoque (menor)</option>
+      </select>
+    </div>
+    <div class="sc-tablewrap" id="estoqueTableWrap">${estoqueTableHTML(filterEstoqueList(materiaisNaSala))}</div>
   `);
 
   return pageHTML("Estoques", `Quantidades atuais, lotes e validade<span class="sc-roomchip">${icon(roomIcon(ROOM),11)} ${roomLabel(ROOM)}</span>`, "", estoqueSection);
 }
+function filterEstoqueList(materiaisNaSala){
+  const q = (document.getElementById("estoqueSearch")?.value || "").toLowerCase();
+  const categoria = document.getElementById("estoqueFiltroCategoria")?.value || "";
+  const situacao = document.getElementById("estoqueFiltroSituacao")?.value || "";
+  const validadeFiltro = ESTOQUE_FILTRO_VALIDADE || "";
+  const ordenar = document.getElementById("estoqueOrdenar")?.value || "nome_asc";
+  let lista = materiaisNaSala.filter(m => {
+    const baixo = (m.estoqueAtual||0) <= (m.estoqueMinimo||0);
+    if (categoria && m.categoria !== categoria) return false;
+    if (situacao==="baixo" && !baixo) return false;
+    if (situacao==="normal" && baixo) return false;
+    if (validadeFiltro){
+      const pior = piorValidadeMaterial(m.id);
+      const status = pior ? pior.status : "sem_validade";
+      if (validadeFiltro==="qualquer_alerta"){
+        if (!["vencido","hoje","critico","atencao"].includes(status)) return false;
+      } else if (validadeFiltro==="sem_validade"){
+        if (pior) return false;
+      } else if (validadeFiltro==="ok"){
+        if (pior) return false;
+      } else if (status !== validadeFiltro) return false;
+    }
+    return `${m.codigo} ${m.nome}`.toLowerCase().includes(q);
+  });
+  const cmp = {
+    nome_asc: (a,b)=>a.nome.localeCompare(b.nome),
+    nome_desc: (a,b)=>b.nome.localeCompare(a.nome),
+    estoque_desc: (a,b)=>(b.estoqueAtual||0)-(a.estoqueAtual||0),
+    estoque_asc: (a,b)=>(a.estoqueAtual||0)-(b.estoqueAtual||0),
+  }[ordenar];
+  return lista.slice().sort(cmp);
+}
+function onEstoqueFiltroValidadeChange(valor){
+  ESTOQUE_FILTRO_VALIDADE = valor || "";
+  renderMain();
+}
+function filtrarEstoquePorValidade(status){
+  ESTOQUE_FILTRO_VALIDADE = (ESTOQUE_FILTRO_VALIDADE===status) ? "" : status;
+  renderMain();
+}
+function filtrarEstoquePorSituacao(situacao){
+  const el = document.getElementById("estoqueFiltroSituacao");
+  if (el) el.value = (el.value===situacao) ? "" : situacao;
+  renderEstoqueTable();
+}
+function limparFiltrosEstoque(){
+  ESTOQUE_FILTRO_VALIDADE = "";
+  const sit = document.getElementById("estoqueFiltroSituacao");
+  if (sit) sit.value = "";
+  renderMain();
+}
 function relMovimentacoesHTML(){
   const materiaisNaSala = DB.materiais.filter(m => inRoom(m, ROOM));
   const setoresNaSala = DB.setores.filter(s => inRoom(s, ROOM));
-  const materialOptions = `<option value="">Todos</option>` + materiaisNaSala.map(m=>`<option value="${m.id}">${escapeHtml(m.nome)}</option>`).join("");
-  const setorOptions = `<option value="">Todos</option>` + setoresNaSala.map(s=>`<option value="${s.id}">${escapeHtml(s.nome)}</option>`).join("");
+  const materialItensRf = materiaisNaSala.slice().sort((a,b)=>a.nome.localeCompare(b.nome)).map(m=>({value:m.id, label:m.nome}));
+  const setorItensRf = setoresNaSala.slice().sort((a,b)=>a.nome.localeCompare(b.nome)).map(s=>({value:s.id, label:s.nome}));
 
   const movSection = sectionHTML("Histórico de movimentações","clipboard",
     `<button class="sc-btn sc-btn-ghost" onclick="exportMovimentosExcel()">${icon("download",14)}<span>Exportar Excel</span></button>`, `
     <div class="sc-fieldrow">
       <label class="sc-field"><span>De</span><input class="sc-input" type="date" id="rf_de" onchange="renderRelatorioMov()"></label>
       <label class="sc-field"><span>Até</span><input class="sc-input" type="date" id="rf_ate" onchange="renderRelatorioMov()"></label>
-      <label class="sc-field is-wide"><span>Material</span><select class="sc-input" id="rf_material" onchange="renderRelatorioMov()">${materialOptions}</select></label>
-      <label class="sc-field is-wide"><span>Setor</span><select class="sc-input" id="rf_setor" onchange="renderRelatorioMov()">${setorOptions}</select></label>
+      <label class="sc-field is-wide"><span>Material</span>${comboHTML("rf_material", materialItensRf, document.getElementById("rf_material")?.value||"", {placeholder:"Todos", onChange:()=>renderRelatorioMov()})}</label>
+      <label class="sc-field is-wide"><span>Setor</span>${comboHTML("rf_setor", setorItensRf, document.getElementById("rf_setor")?.value||"", {placeholder:"Todos", onChange:()=>renderRelatorioMov()})}</label>
+    </div>
+    <div class="sc-toolbar" style="margin-top:8px;">
+      <div class="sc-search">${icon("search")}<input id="rf_busca" oninput="renderRelatorioMov()" placeholder="Buscar por lote ou documento…"></div>
+      <select class="sc-input" id="rf_ordenar" onchange="renderRelatorioMov()" style="max-width:200px;">
+        <option value="data_desc">Data (mais recente)</option>
+        <option value="data_asc">Data (mais antiga)</option>
+        <option value="quantidade_desc">Quantidade (maior)</option>
+        <option value="quantidade_asc">Quantidade (menor)</option>
+      </select>
     </div>
     <div class="sc-tablewrap" id="relatorioMovWrap" style="margin-top:12px;">${movTableHTML(filterMovs())}</div>
   `);
@@ -2598,33 +2926,60 @@ function renderEstoqueTable(){
   const wrap = document.getElementById("estoqueTableWrap");
   if (!wrap) return;
   const materiaisNaSala = DB.materiais.filter(m => inRoom(m, ROOM));
-  wrap.innerHTML = estoqueTableHTML(materiaisNaSala);
+  wrap.innerHTML = estoqueTableHTML(filterEstoqueList(materiaisNaSala));
 }
 function filterMovs(){
   const de = document.getElementById("rf_de")?.value || "";
   const ate = document.getElementById("rf_ate")?.value || "";
   const materialId = document.getElementById("rf_material")?.value || "";
   const setorId = document.getElementById("rf_setor")?.value || "";
-  return DB.movimentos.filter(m=>{
+  const q = (document.getElementById("rf_busca")?.value || "").toLowerCase();
+  const ordenar = document.getElementById("rf_ordenar")?.value || "data_desc";
+  let lista = DB.movimentos.filter(m=>{
     if (!inRoom(m, ROOM)) return false;
     if (de && m.data < de) return false;
     if (ate && m.data > ate) return false;
     if (materialId && m.materialId !== materialId) return false;
     if (setorId && m.setorId !== setorId) return false;
+    if (q && !`${m.lote||""} ${m.documento||""}`.toLowerCase().includes(q)) return false;
     return true;
   });
+  const cmp = {
+    data_desc: (a,b)=>String(b.data||"").localeCompare(String(a.data||"")),
+    data_asc: (a,b)=>String(a.data||"").localeCompare(String(b.data||"")),
+    quantidade_desc: (a,b)=>(b.quantidade||0)-(a.quantidade||0),
+    quantidade_asc: (a,b)=>(a.quantidade||0)-(b.quantidade||0),
+  }[ordenar];
+  return lista.slice().sort(cmp);
 }
 function movTableHTML(list){
   const materialMap = mapBy(DB.materiais), setorMap = mapBy(DB.setores), tipoMap = mapBy(DB.tipos);
   if (list.length===0) return emptyHTML("Nenhuma movimentação encontrada para os filtros selecionados.");
   const mostrarColunaVisibilidade = ROOM === "todas";
+  const totalColunas = 9 + (mostrarColunaVisibilidade?1:0);
   return `<table class="sc-table">
-    <thead><tr><th>Data</th><th>Material</th><th>Tipo</th><th>Setor</th><th class="num">Qtd.</th><th>Lote</th><th>Documento</th>${mostrarColunaVisibilidade?"<th>Visibilidade</th>":""}</tr></thead>
-    <tbody>${list.map(m=>`
-      <tr><td class="mono">${fmtDate(m.data)}</td><td>${escapeHtml(materialMap[m.materialId]?.nome||"—")}</td>
-      <td>${efeitoTagHTML(tipoMap[m.tipoMovimentoId])}</td><td>${escapeHtml(setorMap[m.setorId]?.nome||"—")}</td>
-      <td class="num mono">${fmtNum(m.quantidade)}</td><td class="mono">${escapeHtml(m.lote||"—")}</td>
-      <td class="mono">${escapeHtml(m.documento||"—")}</td>${mostrarColunaVisibilidade?`<td>${escopoBadgesHTML(m.escopo)}</td>`:""}</tr>`).join("")}</tbody></table>`;
+    <thead><tr><th>Data</th><th>Material</th><th>Tipo</th><th>Setor</th><th class="num">Qtd.</th><th>Lote</th><th>Documento</th>${mostrarColunaVisibilidade?"<th>Visibilidade</th>":""}<th>Situação</th><th></th></tr></thead>
+    <tbody>${list.map(m=>{
+      const anulado = !!m.anulado;
+      const situacaoHTML = anulado
+        ? `<span class="sc-tag tag-saida" title="Anulada em ${m.anuladoEm?fmtDate(m.anuladoEm):"—"}">${icon("alert",11)} Anulada</span>`
+        : `<span class="sc-tag tag-entrada">Ativa</span>`;
+      const acaoHTML = anulado
+        ? `<button class="sc-iconbtn" title="Reativar movimentação" onclick="reativarMovimento('${m.id}')">${icon("check",14)}</button>`
+        : `<button class="sc-iconbtn" title="Editar movimentação" onclick="abrirEdicaoMovimento('${m.id}')">${icon("edit",14)}</button>
+           <button class="sc-iconbtn" title="Anular movimentação" onclick="anularMovimento('${m.id}')">${icon("x",14)}</button>`;
+      const linha = `<tr ${anulado?'style="opacity:.55; text-decoration:line-through;"':""}>
+        <td class="mono">${fmtDate(m.data)}</td><td>${escapeHtml(materialMap[m.materialId]?.nome||"—")}</td>
+        <td>${efeitoTagHTML(tipoMap[m.tipoMovimentoId])}</td><td>${escapeHtml(setorMap[m.setorId]?.nome||"—")}</td>
+        <td class="num mono">${fmtNum(m.quantidade)}</td><td class="mono">${escapeHtml(m.lote||"—")}</td>
+        <td class="mono">${escapeHtml(m.documento||"—")}</td>${mostrarColunaVisibilidade?`<td>${escopoBadgesHTML(m.escopo)}</td>`:""}
+        <td style="text-decoration:none;">${situacaoHTML}</td>
+        <td class="rowActions" style="text-decoration:none;">${acaoHTML}</td></tr>`;
+      const edicao = (MOV_EDITANDO_ID===m.id)
+        ? `<tr class="sc-rowdetail"><td colspan="${totalColunas}">${edicaoMovimentoHTML(m)}</td></tr>`
+        : "";
+      return linha + edicao;
+    }).join("")}</tbody></table>`;
 }
 function renderRelatorioMov(){
   const wrap = document.getElementById("relatorioMovWrap");
@@ -2735,6 +3090,7 @@ function calcularConsumo(){
   const materiaisAlvo = DB.materiais.filter(m => inRoom(m, ROOM) && CONSUMO_MATERIAIS_SELECIONADOS.has(m.id));
   return materiaisAlvo.map(m => {
     const movs = DB.movimentos.filter(mv => {
+    if (mv.anulado) return false;
       if (mv.materialId !== m.id) return false;
       if (!inRoom(mv, ROOM)) return false;
       if (de && mv.data < de) return false;
@@ -2781,6 +3137,7 @@ function exportRelatorioRegulatorioExcel(){
   const materiaisNaSala = DB.materiais.filter(m => inRoom(m, ROOM));
   const rows = materiaisNaSala.map(m => {
     const movsPeriodo = DB.movimentos.filter(mv => {
+    if (mv.anulado) return false;
       if (mv.materialId !== m.id || !inRoom(mv, ROOM)) return false;
       if (de && mv.data < de) return false;
       if (ate && mv.data > ate) return false;
