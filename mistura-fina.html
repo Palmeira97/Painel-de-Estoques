@@ -215,22 +215,118 @@ function converterParaGramas(valor, unidade){
   if (u === "g") return valor;
   return null; // unidade não suportada por esta regra (ex.: mL, L, unidade, caixa)
 }
-function limiteErroPesagem(alvoGramas){
-  if (alvoGramas <= 100) return { categoria: "até 100 g", limite: 0.02 };
-  if (alvoGramas <= 5000) return { categoria: "até 5.000 g", limite: 0.3 };
-  return { categoria: "acima de 5.000 g", limite: 0.6 };
+function seedParametros(){
+  return {
+    exigirCodigoBarras: true,
+    exigirObservacaoPesagemIndividual: true,
+    exigirCodigoMisturaFina: true,
+    prefixoCodigoBarras: "",
+    digitosCodigoBarras: 12,
+    prefixoCodigoMisturaFina: "MF-",
+    digitosCodigoMisturaFina: 6,
+    semiacabadoSaiDoEstoque: true,
+    linhasUltimasMovimentacoes: 8,
+    linhasHistoricoOperacao: 20,
+    categoriaSemiacabado: "Semiacabado",
+    nomeEmpresa: "BIOSYN",
+    subtituloEtiqueta: "MISTURA FINA",
+    unidadePadraoMaterial: "g",
+    viasEtiquetaMaterial: 1,
+    viasEtiquetaPesagem: 2,
+    validadeEmBrancoRotulo: "Sem validade",
+    validadeEmBrancoComportamento: "informar",
+  };
+}
+function param(nome){
+  const p = DB.parametros || {};
+  if (p[nome] === undefined || p[nome] === null || p[nome] === "") {
+    const padrao = seedParametros();
+    // false e 0 são valores válidos e não devem cair no padrão
+    if (p[nome] === false || p[nome] === 0) return p[nome];
+    return padrao[nome];
+  }
+  return p[nome];
+}
+function seedFaixasValidade(){
+  return [
+    { id: uid(), nome:"Vencido",    diasAte: -1, cor:"vencido", comportamento:"bloquear" },
+    { id: uid(), nome:"Vence hoje", diasAte:  0, cor:"hoje",    comportamento:"informar" },
+    { id: uid(), nome:"Crítico",    diasAte: 10, cor:"critico", comportamento:"informar" },
+    { id: uid(), nome:"Atenção",    diasAte: 45, cor:"atencao", comportamento:"liberar"  },
+  ];
+}
+const CORES_VALIDADE = [
+  { value:"vencido", label:"Vermelho (vencido)" },
+  { value:"hoje",    label:"Laranja (vence hoje)" },
+  { value:"critico", label:"Âmbar (crítico)" },
+  { value:"atencao", label:"Amarelo (atenção)" },
+  { value:"entrada", label:"Azul (informativo)" },
+];
+const COMPORTAMENTOS_VALIDADE = [
+  { value:"liberar",  label:"Liberar (sem aviso)" },
+  { value:"informar", label:"Informar (avisa e deixa seguir)" },
+  { value:"bloquear", label:"Bloquear (não deixa pesar)" },
+];
+function faixasValidadeOrdenadas(){
+  return [...(DB.faixasValidade||[])].sort((a,b)=> Number(a.diasAte) - Number(b.diasAte));
+}
+function faixaValidadePara(diasRestantes){
+  return faixasValidadeOrdenadas().find(f => diasRestantes <= Number(f.diasAte)) || null;
+}
+function seedFaixasPesagem(){
+  // valores convertidos das regras percentuais anteriores: o limite superior de cada faixa
+  // equivale ao percentual antigo aplicado sobre o maior peso daquela faixa.
+  return [
+    { id: uid(), nome:"Faixa 1", pesoDe: 0,    pesoAte: 100,  limiteInferior: 0, limiteSuperior: 0.02 },
+    { id: uid(), nome:"Faixa 2", pesoDe: 100,  pesoAte: 5000, limiteInferior: 0, limiteSuperior: 15 },
+    { id: uid(), nome:"Faixa 3", pesoDe: 5000, pesoAte: null, limiteInferior: 0, limiteSuperior: 30 },
+  ];
+}
+function checarValidadeLoteParaPesagem(loteInfo, materialId){
+  const material = DB.materiais.find(m=>m.id===materialId);
+  const nome = material?.nome || "material";
+  const lote = loteInfo?.lote || "(sem lote)";
+  if (!loteInfo?.validade){
+    const comp = param("validadeEmBrancoComportamento");
+    if (comp==="bloquear") return { bloquear:true, avisar:false, mensagem:`O lote "${lote}" de "${nome}" está sem data de validade cadastrada e a regra atual não permite usá-lo na pesagem.` };
+    if (comp==="informar") return { bloquear:false, avisar:true, mensagem:`O lote "${lote}" de "${nome}" está sem data de validade cadastrada.` };
+    return { bloquear:false, avisar:false };
+  }
+  const c = classificarValidade(loteInfo.validade);
+  if (!c || c.comportamento==="liberar" || c.status==="ok") return { bloquear:false, avisar:false };
+  const texto = `Lote "${lote}" de "${nome}": ${c.label}${c.faixaNome?` (${c.faixaNome})`:""}.`;
+  if (c.comportamento==="bloquear") return { bloquear:true, avisar:false, mensagem:`${texto}\n\nA regra de validade atual não permite usar este lote na pesagem.` };
+  return { bloquear:false, avisar:true, mensagem:texto };
+}
+function faixasPesagemOrdenadas(){
+  return [...(DB.faixasPesagem||[])].sort((a,b)=> (a.pesoDe||0) - (b.pesoDe||0));
+}
+function faixaPesagemPara(alvoGramas){
+  return faixasPesagemOrdenadas().find(f => {
+    const de = Number(f.pesoDe)||0;
+    const ate = (f.pesoAte===null || f.pesoAte==="" || f.pesoAte===undefined) ? Infinity : Number(f.pesoAte);
+    return alvoGramas >= de && alvoGramas <= ate;
+  }) || null;
+}
+function descreverFaixa(f){
+  const ate = (f.pesoAte===null || f.pesoAte==="" || f.pesoAte===undefined) ? "sem limite" : `${fmtNum(f.pesoAte)} g`;
+  return `${escapeHtml(f.nome||"Faixa")} (${fmtNum(f.pesoDe||0)} g até ${ate})`;
 }
 function validarErroPesagem(pesoTotal, alvo, unidade){
   if (!alvo || alvo<=0) return { bloqueado:false };
-  if (pesoTotal < alvo){
-    return { bloqueado:true, mensagem: `Peso abaixo do indicado na formulação.\n\nAlvo: ${fmtNum(alvo)} ${unidade||""}\nPesado: ${fmtNum(pesoTotal)} ${unidade||""}` };
-  }
   const alvoGramas = converterParaGramas(alvo, unidade);
-  if (alvoGramas === null) return { bloqueado:false };
-  const { categoria, limite } = limiteErroPesagem(alvoGramas);
-  const erroPercentual = round3(((pesoTotal-alvo)/alvo)*100);
-  if (erroPercentual > limite){
-    return { bloqueado:true, mensagem: `Erro de pesagem superior ao limite estabelecido.\n\nEsta pesagem se enquadra na categoria "${categoria}", cujo limite máximo de erro é ${limite}%.\nErro atual: ${fmtNum(erroPercentual)}%` };
+  const pesoGramas = converterParaGramas(pesoTotal, unidade);
+  if (alvoGramas === null || pesoGramas === null) return { bloqueado:false };
+  const faixa = faixaPesagemPara(alvoGramas);
+  if (!faixa) return { bloqueado:false }; // nenhuma faixa cobre este peso: não bloqueia
+  const desvio = round3(pesoGramas - alvoGramas);
+  const limInf = Number(faixa.limiteInferior)||0;
+  const limSup = Number(faixa.limiteSuperior)||0;
+  if (desvio < 0 && Math.abs(desvio) > limInf){
+    return { bloqueado:true, mensagem: `Peso abaixo do indicado na formulação.\n\nFaixa aplicada: ${descreverFaixa(faixa)}\nTolerância para menos: ${fmtNum(limInf)} g\n\nAlvo: ${fmtNum(alvoGramas)} g\nPesado: ${fmtNum(pesoGramas)} g\nDiferença: ${fmtNum(Math.abs(desvio))} g a menos` };
+  }
+  if (desvio > 0 && desvio > limSup){
+    return { bloqueado:true, mensagem: `Erro de pesagem superior ao limite estabelecido.\n\nFaixa aplicada: ${descreverFaixa(faixa)}\nTolerância para mais: ${fmtNum(limSup)} g\n\nAlvo: ${fmtNum(alvoGramas)} g\nPesado: ${fmtNum(pesoGramas)} g\nDiferença: ${fmtNum(desvio)} g a mais` };
   }
   return { bloqueado:false };
 }
@@ -291,7 +387,7 @@ function comboOnBlur(id){
 }
 function isSemiacabado(material){
   if (!material) return false;
-  if (material.categoria === "Semiacabado") return true;
+  if (material.categoria === param("categoriaSemiacabado")) return true;
   // um material referenciado como produto de alguma mistura fina também é semiacabado
   return DB.misturasFinas.some(mf => mf.materialProduzidoId === material.id);
 }
@@ -745,7 +841,7 @@ function seedTipos(){ return [
 ]; }
 
 /* ------------------------------- state ------------------------------- */
-let DB = { materiais: [], categorias: [], unidades: [], setores: [], tipos: [], movimentos: [], colaboradores: [], misturasFinas: [] };
+let DB = { materiais: [], categorias: [], unidades: [], setores: [], tipos: [], movimentos: [], colaboradores: [], misturasFinas: [], faixasPesagem: [], faixasValidade: [], parametros: {} };
 let VIEW = "painel";
 let ROOM = "mistura_fina"; // apenas uma sala neste painel
 let OPEN_FORM = null; // { type, editId }
@@ -761,6 +857,7 @@ let PESANDO_MATERIAL_ID = null;
 let ITENS_PRODUZIDOS_EXPANDIDO = new Set();
 let MOV_EDITANDO_ID = null;
 let ESTOQUE_FILTRO_VALIDADE = "";
+let RASTREIO = { insumoId:"", insumoLote:"", misturaId:"", produtoLote:"" };
 let ITENS_PRODUZIDOS_MODO = "mistura"; // "mistura" | "individual"
 let PI_FILTRO_DE = "";
 let PI_FILTRO_ATE = "";
@@ -773,7 +870,7 @@ const mapBy = (arr) => Object.fromEntries(arr.map(x => [x.id, x]));
 
 /* ------------------------------- persistence ------------------------------- */
 async function loadAll(){
-  const keys = ["materiais","categorias","unidades","setores","tipos","movimentos","colaboradores","misturasFinas"];
+  const keys = ["materiais","categorias","unidades","setores","tipos","movimentos","colaboradores","misturasFinas","faixasPesagem","faixasValidade","parametros"];
   for (const key of keys){
     const res = await storageGet(`${STORAGE_PREFIX}:${key}`);
     if (res && res.value){
@@ -820,6 +917,24 @@ async function loadAll(){
   if (!inventarioInicialMarcador){
     garantirInventarioInicialMF();
     storageSet(`${STORAGE_PREFIX}:inventario_inicial_mf_v1`, "1");
+  }
+
+  // migração: garante as faixas de validade e os parâmetros gerais
+  const paramsMarcador = await storageGet(`${STORAGE_PREFIX}:parametros_v1`);
+  if (!paramsMarcador){
+    if (!DB.faixasValidade || DB.faixasValidade.length===0){ DB.faixasValidade = seedFaixasValidade(); persist("faixasValidade"); }
+    if (!DB.parametros || Object.keys(DB.parametros).length===0){ DB.parametros = seedParametros(); persist("parametros"); }
+    storageSet(`${STORAGE_PREFIX}:parametros_v1`, "1");
+  }
+
+  // migração: garante as faixas padrão de tolerância de pesagem
+  const faixasMarcador = await storageGet(`${STORAGE_PREFIX}:faixas_pesagem_v1`);
+  if (!faixasMarcador){
+    if (!DB.faixasPesagem || DB.faixasPesagem.length===0){
+      DB.faixasPesagem = seedFaixasPesagem();
+      persist("faixasPesagem");
+    }
+    storageSet(`${STORAGE_PREFIX}:faixas_pesagem_v1`, "1");
   }
 
   // migração: recarrega o inventário com as quantidades revisadas e as datas de validade
@@ -1054,6 +1169,9 @@ function defaultFor(key){
   if (key==="unidades") return seedUnidades();
   if (key==="colaboradores") return [];
   if (key==="misturasFinas") return [];
+  if (key==="faixasPesagem") return seedFaixasPesagem();
+  if (key==="faixasValidade") return seedFaixasValidade();
+  if (key==="parametros") return seedParametros();
   return [];
 }
 function persist(key){
@@ -1164,8 +1282,11 @@ async function abrirArquivoDados(){
       alert("O arquivo selecionado não é um JSON válido — ele pode estar corrompido ou não ser um arquivo de dados deste painel.");
       return;
     }
-    const chaves = ["materiais","categorias","unidades","setores","tipos","movimentos","colaboradores","misturasFinas"];
     let algumaChaveEncontrada = false;
+    const chaves = ["materiais","categorias","unidades","setores","tipos","movimentos","colaboradores","misturasFinas","faixasPesagem","faixasValidade"];
+    if (data.parametros && typeof data.parametros === "object" && !Array.isArray(data.parametros)){
+      DB.parametros = data.parametros; persistLocalOnly("parametros"); algumaChaveEncontrada = true;
+    }
     for (const key of chaves){
       if (Array.isArray(data[key])){ DB[key] = data[key]; algumaChaveEncontrada = true; }
     }
@@ -1200,7 +1321,7 @@ async function resetarDadosCompleto(){
   }
 
   const chaves = [
-    "materiais","categorias","unidades","setores","tipos","movimentos","colaboradores","misturasFinas",
+    "materiais","categorias","unidades","setores","tipos","movimentos","colaboradores","misturasFinas","faixasPesagem","faixasValidade","parametros",
     "unidades_padrao_v2","categorias_padrao_v3","categoria_semiacabado_v1",
     "setores_sala_base_v1","setor_responsavel_colaborador_v1","mistura_setor_v1","mistura_percentual_v1",
     "remover_entrega_individual_v1","tipos_producao_v1","tipos_producao_envio_v1","tipos_laboratorio_v1",
@@ -1222,7 +1343,7 @@ async function escreverArquivoDados(){
     const payload = JSON.stringify({
       materiais: DB.materiais, categorias: DB.categorias, unidades: DB.unidades,
       setores: DB.setores, tipos: DB.tipos, movimentos: DB.movimentos,
-      colaboradores: DB.colaboradores, misturasFinas: DB.misturasFinas,
+      colaboradores: DB.colaboradores, misturasFinas: DB.misturasFinas, faixasPesagem: DB.faixasPesagem, faixasValidade: DB.faixasValidade, parametros: DB.parametros,
       salvoEm: new Date().toISOString(),
     }, null, 2);
     await writable.write(payload);
@@ -1517,6 +1638,7 @@ const NAV_CADASTRO = [
   { id:"setores", label:"Setores", icon:"building" },
   { id:"colaboradores", label:"Colaboradores", icon:"user" },
   { id:"tipos", label:"Tipos de Movimento", icon:"repeat" },
+  { id:"definicoes", label:"Definições", icon:"sliders" },
 ];
 const NAV_OP = [
   { id:"movimentacoes", label:"Movimentações", icon:"swap" },
@@ -1527,6 +1649,7 @@ const NAV_RELATORIOS = [
   { id:"rel_movimentacoes", label:"Movimentações", icon:"clipboard" },
   { id:"itens_produzidos", label:"Itens Produzidos", icon:"signature" },
   { id:"misturas_relatorio", label:"Misturas Finas", icon:"flask" },
+  { id:"rastreabilidade", label:"Rastreabilidade por Insumos", icon:"search" },
   { id:"relatorios", label:"Consumo", icon:"trend" },
 ];
 
@@ -1634,10 +1757,12 @@ function viewHTML(){
     case "setores": return setoresHTML();
     case "colaboradores": return colaboradoresHTML();
     case "tipos": return tiposHTML();
+    case "definicoes": return definicoesHTML();
     case "movimentacoes": return movimentacoesHTML();
     case "producao": return producaoHTML();
     case "itens_produzidos": return itensProduzidosHTML();
     case "misturas_relatorio": return misturasRelatorioHTML();
+    case "rastreabilidade": return rastreabilidadeHTML();
     case "estoques": return estoquesHTML();
     case "rel_movimentacoes": return relMovimentacoesHTML();
     case "relatorios": return relatoriosAnaliseHTML();
@@ -1681,7 +1806,7 @@ function painelHTML(){
   const abaixoMinimo = materiais.filter((m) => (m.estoqueAtual||0) <= (m.estoqueMinimo||0));
   const hoje = todayISO();
   const mfsProduzidasHoje = movimentos.filter(m => tipoMapGeral[m.tipoMovimentoId]?.especial==="producao_entrada" && m.data === hoje && !m.anulado);
-  const ultimos = movimentos.slice(0,8);
+  const ultimos = movimentos.slice(0, Math.max(1, Number(param("linhasUltimasMovimentacoes"))||8));
   const materialMap = mapBy(DB.materiais), setorMap = mapBy(DB.setores), tipoMap = mapBy(DB.tipos);
 
   const ordemUrgencia = { vencido:0, hoje:1, critico:2, atencao:3 };
@@ -1742,11 +1867,18 @@ function painelHTML(){
 
   const ultimosBody = ultimos.length===0 ? emptyHTML("Nenhuma movimentação registrada ainda nesta visão. Abra “Movimentações” para lançar a primeira entrada ou saída.") : `
     <div class="sc-tablewrap"><table class="sc-table">
-      <thead><tr><th>Data</th><th>Material</th><th>Tipo</th><th>Setor</th><th class="num">Qtd.</th></tr></thead>
-      <tbody>${ultimos.map(m=>`
-        <tr><td class="mono">${fmtDate(m.data)}</td><td>${escapeHtml(materialMap[m.materialId]?.nome||"—")}</td>
-        <td>${efeitoTagHTML(tipoMap[m.tipoMovimentoId])}</td><td>${escapeHtml(setorMap[m.setorId]?.nome||"—")}</td>
-        <td class="num mono">${fmtNum(m.quantidade)}</td></tr>`).join("")}
+      <thead><tr><th>Data</th><th>Material</th><th>Tipo</th><th>Setor</th><th class="num">Qtd.</th><th>Situação</th></tr></thead>
+      <tbody>${ultimos.map(m=>{
+        const anulado = !!m.anulado;
+        const situacaoHTML = anulado
+          ? `<span class="sc-tag tag-saida" title="Anulada em ${m.anuladoEm?fmtDate(m.anuladoEm):"—"}">${icon("alert",11)} Anulada</span>`
+          : `<span class="sc-tag tag-entrada">Ativa</span>`;
+        return `<tr ${anulado?'style="opacity:.55; text-decoration:line-through;"':""}>
+          <td class="mono">${fmtDate(m.data)}</td><td>${escapeHtml(materialMap[m.materialId]?.nome||"—")}</td>
+          <td>${efeitoTagHTML(tipoMap[m.tipoMovimentoId])}</td><td>${escapeHtml(setorMap[m.setorId]?.nome||"—")}</td>
+          <td class="num mono">${fmtNum(m.quantidade)}</td>
+          <td style="text-decoration:none;">${situacaoHTML}</td></tr>`;
+      }).join("")}
       </tbody></table></div>`;
 
   return pageHTML("Painel", `Visão geral do dia<span class="sc-roomchip">${icon(roomIcon(ROOM),11)} ${roomLabel(ROOM)}</span>`, "", `
@@ -1754,7 +1886,9 @@ function painelHTML(){
     ${alertProducaoPendenteSection}
     ${alertEstoqueSection}
     ${alertValidadeSection}
-    ${sectionHTML("Últimas movimentações","clipboard","", ultimosBody)}
+    ${sectionHTML("Últimas movimentações","clipboard",
+      `<button class="sc-btn sc-btn-ghost" onclick="nav('rel_movimentacoes')">${icon("clipboard",14)}<span>Ver histórico completo</span></button>`,
+      ultimosBody)}
   `);
 }
 
@@ -1763,7 +1897,7 @@ function emptyMaterial(){ return { codigo:"", codigoBarras:"", nome:"", categori
 
 function materiaisHTML(){
   const formArea = OPEN_FORM?.type==="material" ? materialFormHTML(OPEN_FORM.editId) : "";
-  const categoriaItems = [...new Set(DB.materiais.map(m=>m.categoria).filter(Boolean))].sort((a,b)=>a.localeCompare(b)).map(c=>({value:c, label:c}));
+  const categoriaItems = [...new Set(DB.materiais.filter(m=>!isSemiacabado(m)).map(m=>m.categoria).filter(Boolean))].sort((a,b)=>a.localeCompare(b)).map(c=>({value:c, label:c}));
   return pageHTML("Materiais","Itens sob controle",
     `<button class="sc-btn sc-btn-primary" onclick="openForm('material')">${icon("plus")}<span>Novo material</span></button>`, `
     <div class="sc-toolbar">
@@ -1847,7 +1981,7 @@ function materialFormHTML(editId){
       </div>
       <div class="sc-fieldrow">
         <label class="sc-field"><span>Categoria</span>${comboHTML("f_categoria", categoriaItemsForm, m?.categoria||"", {placeholder:"Digite para buscar…"})}</label>
-        <label class="sc-field"><span>Unidade</span>${comboHTML("f_unidade", unidadeItemsForm, m?.unidade||"", {placeholder:"Digite para buscar…"})}</label>
+        <label class="sc-field"><span>Unidade</span>${comboHTML("f_unidade", unidadeItemsForm, m?.unidade || (editId?"":param("unidadePadraoMaterial")) || "", {placeholder:"Digite para buscar…"})}</label>
         <label class="sc-field"><span>Estoque mínimo</span><input class="sc-input" type="number" min="0" step="0.001" id="f_min" value="${m?.estoqueMinimo ?? 0}"></label>
       </div>
       ${editId ? `<div class="sc-hint">Estoque atual: <strong>${fmtNum(m?.estoqueAtual||0)} ${escapeHtml(m?.unidade||"")}</strong> — para alterar, lance uma movimentação de entrada, saída ou ajuste.</div>` : `<div class="sc-hint">O estoque inicial começa em zero. Para adicionar quantidade, lance uma movimentação de entrada depois de salvar o material.</div>`}
@@ -1862,8 +1996,9 @@ function materialFormHTML(editId){
 function openForm(type, editId){ OPEN_FORM = { type, editId: editId||null }; renderMain(); }
 function gerarCodigoBarrasAuto(){
   let codigo = "";
-  for (let i=0;i<12;i++) codigo += Math.floor(Math.random()*10);
-  return codigo;
+  const digitos = Math.max(4, Number(param("digitosCodigoBarras"))||12);
+  for (let i=0;i<digitos;i++) codigo += Math.floor(Math.random()*10);
+  return (param("prefixoCodigoBarras")||"") + codigo;
 }
 function gerarCodigoBarrasUnico(){
   let codigo;
@@ -1882,7 +2017,7 @@ function saveMaterial(editId){
   const duplicadoCodigo = DB.materiais.find(m => m.codigo.trim().toLowerCase()===codigo.toLowerCase() && m.id!==editId);
   if (duplicadoCodigo){ alert(`Já existe um material com esse código: ${duplicadoCodigo.nome}.`); return; }
   const codigoBarras = document.getElementById("f_codigoBarras").value.trim();
-  if (!codigoBarras){ alert("Informe ou gere o código de barras do material — ele será usado para confirmar o item na hora da pesagem."); return; }
+  if (!codigoBarras && param("exigirCodigoBarras")){ alert("Informe ou gere o código de barras do material — ele será usado para confirmar o item na hora da pesagem."); return; }
   const duplicado = DB.materiais.find(m => m.codigoBarras===codigoBarras && m.id!==editId);
   if (duplicado){ alert(`Já existe um material com esse código de barras: ${duplicado.nome}.`); return; }
   const data = {
@@ -1940,7 +2075,7 @@ function imprimirEtiquetaMaterialCadastro(materialId){
   }
 </style></head><body>
   <div class="etiqueta">
-    <div class="et-marca">BIOSYN · MISTURA FINA</div>
+    <div class="et-marca">${escapeHtml(param("nomeEmpresa"))}${param("subtituloEtiqueta")?` · ${escapeHtml(param("subtituloEtiqueta"))}`:""}</div>
     <div class="et-nome">${escapeHtml(material.nome)}</div>
     <div class="et-codigo">${escapeHtml(material.codigo||"")}</div>
     <svg id="barcode"></svg>
@@ -2120,10 +2255,12 @@ function onMisturaCodigoInput(){
     : "";
 }
 function gerarCodigoMaterialAuto(){
-  return `MF-${uid().slice(0,6).toUpperCase()}`;
+  const digitos = Math.max(3, Number(param("digitosCodigoMisturaFina"))||6);
+  return `${param("prefixoCodigoMisturaFina")||""}${uid().slice(0,digitos).toUpperCase()}`;
 }
 function sincronizarMaterialDaMistura(mf, nome, unidade, codigo){
-  const categoriaSemiacabado = DB.categorias.some(c=>c.nome==="Semiacabado") ? "Semiacabado" : (DB.categorias[0]?.nome || "");
+  const nomeCatSemi = param("categoriaSemiacabado");
+  const categoriaSemiacabado = DB.categorias.some(c=>c.nome===nomeCatSemi) ? nomeCatSemi : (DB.categorias[0]?.nome || "");
   if (mf && mf.materialProduzidoId){
     const existente = DB.materiais.find(m=>m.id===mf.materialProduzidoId);
     if (existente){
@@ -2158,7 +2295,7 @@ function saveMisturaFina(editId){
     if (!confirm(`A soma dos percentuais está em ${fmtNum(totalPercentual)}% (esperado 100%). Deseja salvar assim mesmo?`)) return;
   }
   const codigo = document.getElementById("mf_codigo").value.trim();
-  if (!codigo){ alert("Informe o código da mistura fina."); return; }
+  if (!codigo && param("exigirCodigoMisturaFina")){ alert("Informe o código da mistura fina."); return; }
   const observacao = document.getElementById("mf_obs").value.trim();
 
   // o código identifica a mistura fina: salvar com um código já existente atualiza aquele registro
@@ -2195,6 +2332,280 @@ function deleteMisturaFina(id){
   if (!confirm("Excluir esta mistura fina e sua receita?")) return;
   DB.misturasFinas = DB.misturasFinas.filter(m=>m.id!==id);
   persist("misturasFinas");
+  render();
+}
+
+/* ============================ CADASTRO: DEFINIÇÕES (faixas de pesagem) ============================ */
+function definicoesHTML(){
+  const secaoValidade = definicoesSecaoValidade();
+  const secaoGeral = definicoesSecaoGeral();
+  const formArea = OPEN_FORM?.type==="faixa" ? faixaFormHTML(OPEN_FORM.editId) : "";
+  const faixas = faixasPesagemOrdenadas();
+
+  const corpo = faixas.length===0
+    ? emptyHTML("Nenhuma faixa de pesagem definida. Sem faixas, a conferência de peso na produção não bloqueia nada.")
+    : `<table class="sc-table">
+      <thead><tr><th>Faixa</th><th class="num">Peso de (g)</th><th class="num">Peso até (g)</th><th class="num">Tolerância p/ menos (g)</th><th class="num">Tolerância p/ mais (g)</th><th></th></tr></thead>
+      <tbody>${faixas.map(f=>`
+        <tr>
+          <td>${escapeHtml(f.nome||"—")}</td>
+          <td class="num mono">${fmtNum(f.pesoDe||0)}</td>
+          <td class="num mono">${(f.pesoAte===null||f.pesoAte==="") ? "sem limite" : fmtNum(f.pesoAte)}</td>
+          <td class="num mono">${fmtNum(f.limiteInferior||0)}</td>
+          <td class="num mono">${fmtNum(f.limiteSuperior||0)}</td>
+          <td class="rowActions">
+            <button class="sc-iconbtn" title="Editar" onclick="openForm('faixa','${f.id}')">${icon("edit",14)}</button>
+            <button class="sc-iconbtn" title="Excluir" onclick="deleteFaixaPesagem('${f.id}')">${icon("trash",14)}</button>
+          </td>
+        </tr>`).join("")}</tbody></table>`;
+
+  const avisos = validarCoberturaFaixas();
+  const avisoHTML = avisos.length===0 ? "" :
+    `<div class="sc-hint sc-hint-alert">${icon("alert",13)} ${avisos.map(a=>escapeHtml(a)).join("<br>")}</div>`;
+
+  const secaoFaixas = sectionHTML("Faixas de tolerância de pesagem","sliders",
+    `<button class="sc-btn sc-btn-primary" onclick="openForm('faixa')">${icon("plus")}<span>Nova faixa</span></button>`, `
+    <div class="sc-hint">A faixa é escolhida pelo <strong>peso alvo</strong> do ingrediente (convertido em gramas). As tolerâncias são informadas em <strong>gramas</strong>: quanto o peso pesado pode ficar abaixo e acima do alvo antes de a pesagem ser bloqueada.</div>
+    ${avisoHTML}
+    ${formArea}
+    <div class="sc-tablewrap">${corpo}</div>
+  `);
+
+  return pageHTML("Definições","Parâmetros de funcionamento do painel","",
+    `${secaoValidade}${secaoFaixas}${secaoGeral}`);
+}
+function definicoesSecaoValidade(){
+  const formArea = OPEN_FORM?.type==="faixaValidade" ? faixaValidadeFormHTML(OPEN_FORM.editId) : "";
+  const faixas = faixasValidadeOrdenadas();
+  const rotuloComp = (v) => (COMPORTAMENTOS_VALIDADE.find(x=>x.value===v)?.label) || v;
+  const corpo = faixas.length===0
+    ? emptyHTML("Nenhuma faixa de validade definida — nenhum alerta de vencimento será exibido.")
+    : `<table class="sc-table">
+        <thead><tr><th>Faixa</th><th class="num">Até (dias p/ vencer)</th><th>Cor da tag</th><th>Na produção</th><th></th></tr></thead>
+        <tbody>${faixas.map(f=>`
+          <tr>
+            <td><span class="sc-tag tag-${f.cor||"atencao"}">${escapeHtml(f.nome||"—")}</span></td>
+            <td class="num mono">${Number(f.diasAte)<0 ? "já vencido" : Number(f.diasAte)===0 ? "vence hoje" : fmtNum(f.diasAte)}</td>
+            <td>${escapeHtml((CORES_VALIDADE.find(x=>x.value===f.cor)?.label)||f.cor||"—")}</td>
+            <td>${escapeHtml(rotuloComp(f.comportamento))}</td>
+            <td class="rowActions">
+              <button class="sc-iconbtn" title="Editar" onclick="openForm('faixaValidade','${f.id}')">${icon("edit",14)}</button>
+              <button class="sc-iconbtn" title="Excluir" onclick="deleteFaixaValidade('${f.id}')">${icon("trash",14)}</button>
+            </td>
+          </tr>`).join("")}</tbody></table>`;
+
+  return sectionHTML("Prazos dos alertas de validade","alert",
+    `<button class="sc-btn sc-btn-primary" onclick="openForm('faixaValidade')">${icon("plus")}<span>Nova faixa</span></button>`, `
+    <div class="sc-hint">Cada faixa vale para lotes com <strong>até</strong> aquele número de dias para vencer. O lote cai na primeira faixa que couber, da menor para a maior. Use <strong>-1</strong> para lotes já vencidos e <strong>0</strong> para os que vencem hoje.</div>
+    ${formArea}
+    <div class="sc-tablewrap">${corpo}</div>
+    <div class="sc-fieldrow" style="margin-top:14px; border-top:1px dashed var(--line); padding-top:12px;">
+      <label class="sc-field is-wide"><span>Rótulo para lotes sem validade</span><input class="sc-input" id="pr_validadeEmBrancoRotulo" value="${escapeHtml(param("validadeEmBrancoRotulo"))}" onchange="salvarParametro('validadeEmBrancoRotulo', this.value)"></label>
+      <label class="sc-field is-wide"><span>Lote sem validade, na produção</span>
+        <select class="sc-input" onchange="salvarParametro('validadeEmBrancoComportamento', this.value)">
+          ${COMPORTAMENTOS_VALIDADE.map(o=>`<option value="${o.value}" ${param("validadeEmBrancoComportamento")===o.value?"selected":""}>${o.label}</option>`).join("")}
+        </select></label>
+    </div>
+  `);
+}
+function faixaValidadeFormHTML(editId){
+  const f = editId ? DB.faixasValidade.find(x=>x.id===editId) : null;
+  return `
+  <div class="sc-formpanel">
+    <div class="sc-formpanelHead"><span>${f?"Editar faixa de validade":"Nova faixa de validade"}</span>
+      <button class="sc-iconbtn" onclick="closeForm()">${icon("x",14)}</button></div>
+    <div class="sc-formpanelBody">
+      <div class="sc-fieldrow">
+        <label class="sc-field is-wide"><span>Nome da faixa</span><input class="sc-input" id="fv_nome" value="${escapeHtml(f?.nome||"")}" placeholder="Ex.: Atenção"></label>
+        <label class="sc-field"><span>Até quantos dias para vencer</span><input class="sc-input" type="number" step="1" id="fv_dias" value="${f?.diasAte ?? ""}" placeholder="Ex.: 45"></label>
+      </div>
+      <div class="sc-fieldrow">
+        <label class="sc-field is-wide"><span>Cor da tag</span><select class="sc-input" id="fv_cor">
+          ${CORES_VALIDADE.map(o=>`<option value="${o.value}" ${f?.cor===o.value?"selected":""}>${o.label}</option>`).join("")}
+        </select></label>
+        <label class="sc-field is-wide"><span>Comportamento na produção</span><select class="sc-input" id="fv_comp">
+          ${COMPORTAMENTOS_VALIDADE.map(o=>`<option value="${o.value}" ${f?.comportamento===o.value?"selected":""}>${o.label}</option>`).join("")}
+        </select></label>
+      </div>
+      <div id="fv_erro"></div>
+    </div>
+    <div class="sc-formfoot">
+      <button class="sc-btn sc-btn-ghost" onclick="closeForm()">Cancelar</button>
+      <button class="sc-btn sc-btn-primary" onclick="saveFaixaValidade(${editId?`'${editId}'`:"null"})">${icon("check",14)}<span>Salvar</span></button>
+    </div>
+  </div>`;
+}
+function saveFaixaValidade(editId){
+  const errBox = document.getElementById("fv_erro");
+  const nome = document.getElementById("fv_nome").value.trim();
+  if (!nome){ errBox.innerHTML = `<div class="sc-error">${icon("alert",14)} Informe o nome da faixa.</div>`; return; }
+  const diasRaw = document.getElementById("fv_dias").value;
+  const diasAte = Number(diasRaw);
+  if (diasRaw==="" || isNaN(diasAte)){ errBox.innerHTML = `<div class="sc-error">${icon("alert",14)} Informe o número de dias da faixa.</div>`; return; }
+  if (DB.faixasValidade.some(x=>x.id!==editId && Number(x.diasAte)===diasAte)){
+    errBox.innerHTML = `<div class="sc-error">${icon("alert",14)} Já existe uma faixa com ${diasAte} dia(s). Cada faixa precisa de um limite diferente.</div>`; return;
+  }
+  const data = { nome, diasAte, cor: document.getElementById("fv_cor").value, comportamento: document.getElementById("fv_comp").value };
+  if (editId) DB.faixasValidade = DB.faixasValidade.map(x=> x.id===editId ? {...x, ...data} : x);
+  else DB.faixasValidade.push({ id: uid(), ...data });
+  persist("faixasValidade");
+  OPEN_FORM = null;
+  render();
+}
+function deleteFaixaValidade(id){
+  const f = DB.faixasValidade.find(x=>x.id===id);
+  if (!confirm(`Excluir a faixa "${f?.nome||""}"? Lotes nesse prazo deixarão de ser sinalizados.`)) return;
+  DB.faixasValidade = DB.faixasValidade.filter(x=>x.id!==id);
+  persist("faixasValidade");
+  render();
+}
+function salvarParametro(nome, valor){
+  if (!DB.parametros) DB.parametros = {};
+  DB.parametros[nome] = valor;
+  persist("parametros");
+  render();
+}
+function salvarParametroBool(nome, valor){ salvarParametro(nome, !!valor); }
+function salvarParametroNum(nome, valor){ salvarParametro(nome, Number(valor)); }
+function definicoesSecaoGeral(){
+  const unidadeItens = [...DB.unidades].sort((a,b)=>a.nome.localeCompare(b.nome)).map(u=>({value:u.nome, label:u.nome}));
+  const categoriaItens = [...DB.categorias].sort((a,b)=>a.nome.localeCompare(b.nome)).map(x=>({value:x.nome, label:x.nome}));
+  const sim_nao = (nome, rotulo, ajuda) => `
+    <label class="sc-field is-wide">
+      <span>${rotulo}</span>
+      <select class="sc-input" onchange="salvarParametroBool('${nome}', this.value==='sim')">
+        <option value="sim" ${param(nome)?"selected":""}>Sim</option>
+        <option value="nao" ${!param(nome)?"selected":""}>Não</option>
+      </select>
+      ${ajuda?`<span class="sc-hint" style="margin-top:4px;">${ajuda}</span>`:""}
+    </label>`;
+
+  return sectionHTML("Parâmetros gerais","sliders","", `
+    <div style="font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.4px; color:var(--ink-faint); margin-bottom:6px;">Campos obrigatórios</div>
+    <div class="sc-fieldrow">
+      ${sim_nao("exigirCodigoBarras","Exigir código de barras no material","Necessário para confirmar o item por leitura na pesagem.")}
+      ${sim_nao("exigirCodigoMisturaFina","Exigir código na mistura fina","O código também identifica a receita ao salvar.")}
+      ${sim_nao("exigirObservacaoPesagemIndividual","Exigir observação na pesagem individual","")}
+    </div>
+
+    <div style="font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.4px; color:var(--ink-faint); margin:16px 0 6px;">Códigos gerados automaticamente</div>
+    <div class="sc-fieldrow">
+      <label class="sc-field"><span>Prefixo do código de barras</span><input class="sc-input" value="${escapeHtml(param("prefixoCodigoBarras"))}" placeholder="(sem prefixo)" onchange="salvarParametro('prefixoCodigoBarras', this.value.trim())"></label>
+      <label class="sc-field"><span>Dígitos do código de barras</span><input class="sc-input" type="number" min="4" max="20" value="${param("digitosCodigoBarras")}" onchange="salvarParametroNum('digitosCodigoBarras', this.value)"></label>
+      <label class="sc-field"><span>Prefixo do código da mistura fina</span><input class="sc-input" value="${escapeHtml(param("prefixoCodigoMisturaFina"))}" onchange="salvarParametro('prefixoCodigoMisturaFina', this.value.trim())"></label>
+      <label class="sc-field"><span>Caracteres do código da MF</span><input class="sc-input" type="number" min="3" max="12" value="${param("digitosCodigoMisturaFina")}" onchange="salvarParametroNum('digitosCodigoMisturaFina', this.value)"></label>
+    </div>
+
+    <div style="font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.4px; color:var(--ink-faint); margin:16px 0 6px;">Produção e estoque</div>
+    <div class="sc-fieldrow">
+      ${sim_nao("semiacabadoSaiDoEstoque","Semiacabado sai do estoque ao ser produzido","Se \"Não\", o semiacabado produzido fica em estoque e passa a aparecer nas telas de Materiais e Estoques.")}
+      <label class="sc-field is-wide"><span>Categoria usada para semiacabados</span>${comboHTML("pr_catSemi", categoriaItens, param("categoriaSemiacabado"), {placeholder:"Digite para buscar…", onChange:(v)=>salvarParametro("categoriaSemiacabado", v)})}</label>
+      <label class="sc-field is-wide"><span>Unidade padrão ao cadastrar material</span>${comboHTML("pr_unidadePadrao", unidadeItens, param("unidadePadraoMaterial"), {placeholder:"Digite para buscar…", onChange:(v)=>salvarParametro("unidadePadraoMaterial", v)})}</label>
+    </div>
+
+    <div style="font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.4px; color:var(--ink-faint); margin:16px 0 6px;">Etiquetas e identidade</div>
+    <div class="sc-fieldrow">
+      <label class="sc-field"><span>Nome da empresa</span><input class="sc-input" value="${escapeHtml(param("nomeEmpresa"))}" onchange="salvarParametro('nomeEmpresa', this.value.trim())"></label>
+      <label class="sc-field"><span>Subtítulo da etiqueta</span><input class="sc-input" value="${escapeHtml(param("subtituloEtiqueta"))}" onchange="salvarParametro('subtituloEtiqueta', this.value.trim())"></label>
+      <label class="sc-field"><span>Vias padrão — etiqueta de material</span><input class="sc-input" type="number" min="1" max="20" value="${param("viasEtiquetaMaterial")}" onchange="salvarParametroNum('viasEtiquetaMaterial', this.value)"></label>
+      <label class="sc-field"><span>Vias padrão — etiqueta de pesagem</span><input class="sc-input" type="number" min="1" max="20" value="${param("viasEtiquetaPesagem")}" onchange="salvarParametroNum('viasEtiquetaPesagem', this.value)"></label>
+    </div>
+
+    <div style="font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.4px; color:var(--ink-faint); margin:16px 0 6px;">Exibição</div>
+    <div class="sc-fieldrow">
+      <label class="sc-field"><span>Linhas em "Últimas movimentações" (Painel)</span><input class="sc-input" type="number" min="1" max="50" value="${param("linhasUltimasMovimentacoes")}" onchange="salvarParametroNum('linhasUltimasMovimentacoes', this.value)"></label>
+      <label class="sc-field"><span>Linhas no histórico de Operação</span><input class="sc-input" type="number" min="1" max="100" value="${param("linhasHistoricoOperacao")}" onchange="salvarParametroNum('linhasHistoricoOperacao', this.value)"></label>
+    </div>
+  `);
+}
+function validarCoberturaFaixas(){
+  const faixas = faixasPesagemOrdenadas();
+  const avisos = [];
+  if (faixas.length===0) return avisos;
+  if ((Number(faixas[0].pesoDe)||0) > 0) avisos.push(`Pesos abaixo de ${fmtNum(faixas[0].pesoDe)} g não são cobertos por nenhuma faixa e não serão conferidos.`);
+  for (let i=0;i<faixas.length-1;i++){
+    const atual = faixas[i], prox = faixas[i+1];
+    const ate = (atual.pesoAte===null||atual.pesoAte==="") ? Infinity : Number(atual.pesoAte);
+    const de = Number(prox.pesoDe)||0;
+    if (ate === Infinity){ avisos.push(`A faixa "${atual.nome}" não tem limite superior, então as faixas seguintes nunca serão usadas.`); break; }
+    if (de > ate) avisos.push(`Há um intervalo sem cobertura entre ${fmtNum(ate)} g e ${fmtNum(de)} g.`);
+  }
+  const ultima = faixas[faixas.length-1];
+  if (!(ultima.pesoAte===null||ultima.pesoAte==="")) avisos.push(`Pesos acima de ${fmtNum(ultima.pesoAte)} g não são cobertos por nenhuma faixa e não serão conferidos.`);
+  return avisos;
+}
+function faixaFormHTML(editId){
+  const f = editId ? DB.faixasPesagem.find(x=>x.id===editId) : null;
+  const semLimite = f ? (f.pesoAte===null||f.pesoAte==="") : false;
+  return `
+  <div class="sc-formpanel">
+    <div class="sc-formpanelHead"><span>${f?"Editar faixa":"Nova faixa de pesagem"}</span>
+      <button class="sc-iconbtn" onclick="closeForm()">${icon("x",14)}</button></div>
+    <div class="sc-formpanelBody">
+      <div class="sc-fieldrow">
+        <label class="sc-field is-wide"><span>Nome da faixa</span><input class="sc-input" id="fx_nome" value="${escapeHtml(f?.nome||"")}" placeholder="Ex.: Balança analítica"></label>
+        <label class="sc-field"><span>Peso de (g)</span><input class="sc-input" type="number" min="0" step="0.001" id="fx_de" value="${f?.pesoDe ?? ""}"></label>
+        <label class="sc-field"><span>Peso até (g)</span><input class="sc-input" type="number" min="0" step="0.001" id="fx_ate" value="${semLimite?"":(f?.pesoAte ?? "")}" ${semLimite?"disabled":""}></label>
+      </div>
+      <label style="display:flex; align-items:center; gap:7px; font-size:12.5px; font-weight:400;">
+        <input type="checkbox" id="fx_semlimite" ${semLimite?"checked":""} onchange="document.getElementById('fx_ate').disabled=this.checked; if(this.checked) document.getElementById('fx_ate').value='';">
+        <span>Sem limite superior (última faixa)</span>
+      </label>
+      <div class="sc-fieldrow">
+        <label class="sc-field"><span>Tolerância para menos (g)</span><input class="sc-input" type="number" min="0" step="0.001" id="fx_inf" value="${f?.limiteInferior ?? 0}"></label>
+        <label class="sc-field"><span>Tolerância para mais (g)</span><input class="sc-input" type="number" min="0" step="0.001" id="fx_sup" value="${f?.limiteSuperior ?? 0}"></label>
+      </div>
+      <div class="sc-hint">Deixe a tolerância em 0 para exigir o peso exato naquele sentido. Ex.: 0 para menos e 15 para mais significa que o operador não pode pesar nada abaixo do alvo, mas pode ultrapassar em até 15 g.</div>
+      <div id="fx_erro"></div>
+    </div>
+    <div class="sc-formfoot">
+      <button class="sc-btn sc-btn-ghost" onclick="closeForm()">Cancelar</button>
+      <button class="sc-btn sc-btn-primary" onclick="saveFaixaPesagem(${editId?`'${editId}'`:"null"})">${icon("check",14)}<span>Salvar</span></button>
+    </div>
+  </div>`;
+}
+function saveFaixaPesagem(editId){
+  const errBox = document.getElementById("fx_erro");
+  const nome = document.getElementById("fx_nome").value.trim();
+  if (!nome){ errBox.innerHTML = `<div class="sc-error">${icon("alert",14)} Informe o nome da faixa.</div>`; return; }
+  const de = Number(document.getElementById("fx_de").value);
+  const semLimite = document.getElementById("fx_semlimite").checked;
+  const ateRaw = document.getElementById("fx_ate").value;
+  const ate = semLimite ? null : Number(ateRaw);
+  if (isNaN(de) || de < 0){ errBox.innerHTML = `<div class="sc-error">${icon("alert",14)} Informe o peso inicial da faixa.</div>`; return; }
+  if (!semLimite){
+    if (ateRaw==="" || isNaN(ate)){ errBox.innerHTML = `<div class="sc-error">${icon("alert",14)} Informe o peso final da faixa ou marque "sem limite superior".</div>`; return; }
+    if (ate <= de){ errBox.innerHTML = `<div class="sc-error">${icon("alert",14)} O peso final precisa ser maior que o peso inicial.</div>`; return; }
+  }
+  const limiteInferior = Number(document.getElementById("fx_inf").value)||0;
+  const limiteSuperior = Number(document.getElementById("fx_sup").value)||0;
+  if (limiteInferior < 0 || limiteSuperior < 0){ errBox.innerHTML = `<div class="sc-error">${icon("alert",14)} As tolerâncias não podem ser negativas.</div>`; return; }
+
+  // impede sobreposição com outra faixa já existente
+  const outras = DB.faixasPesagem.filter(x=>x.id!==editId);
+  const ateComp = semLimite ? Infinity : ate;
+  const conflito = outras.find(o => {
+    const oDe = Number(o.pesoDe)||0;
+    const oAte = (o.pesoAte===null||o.pesoAte==="") ? Infinity : Number(o.pesoAte);
+    return de < oAte && ateComp > oDe;
+  });
+  if (conflito){
+    errBox.innerHTML = `<div class="sc-error">${icon("alert",14)} Esta faixa se sobrepõe à faixa "${escapeHtml(conflito.nome)}". Ajuste os limites de peso.</div>`;
+    return;
+  }
+
+  const data = { nome, pesoDe: de, pesoAte: semLimite ? null : ate, limiteInferior, limiteSuperior };
+  if (editId) DB.faixasPesagem = DB.faixasPesagem.map(x=> x.id===editId ? {...x, ...data} : x);
+  else DB.faixasPesagem.push({ id: uid(), ...data });
+  persist("faixasPesagem");
+  OPEN_FORM = null;
+  render();
+}
+function deleteFaixaPesagem(id){
+  const f = DB.faixasPesagem.find(x=>x.id===id);
+  if (!confirm(`Excluir a faixa "${f?.nome||""}"? Pesos nesse intervalo deixarão de ser conferidos na produção.`)) return;
+  DB.faixasPesagem = DB.faixasPesagem.filter(x=>x.id!==id);
+  persist("faixasPesagem");
   render();
 }
 
@@ -2554,23 +2965,22 @@ function deleteTipo(id){
 
 /* ============================== MOVIMENTAÇÕES ============================== */
 /* ------------------------------- indicadores de validade ------------------------------- */
-const LIMITE_CRITICO_DIAS = 10;
-const LIMITE_ATENCAO_DIAS = 45;
 function classificarValidade(validadeISO){
   if (!validadeISO) return null;
   const hoje = new Date(todayISO()+"T00:00:00");
   const val = new Date(validadeISO+"T00:00:00");
   const diffDias = Math.round((val - hoje) / (1000*60*60*24));
-  if (diffDias < 0) return { status:"vencido", label:`Vencido há ${Math.abs(diffDias)} dia(s)`, dias:diffDias };
-  if (diffDias === 0) return { status:"hoje", label:"Vence hoje", dias:diffDias };
-  if (diffDias <= LIMITE_CRITICO_DIAS) return { status:"critico", label:`Vence em ${diffDias} dia(s)`, dias:diffDias };
-  if (diffDias <= LIMITE_ATENCAO_DIAS) return { status:"atencao", label:`Vence em ${diffDias} dia(s)`, dias:diffDias };
-  return { status:"ok", label:`Vence em ${diffDias} dia(s)`, dias:diffDias };
+  const faixa = faixaValidadePara(diffDias);
+  const textoDias = diffDias < 0 ? `Vencido há ${Math.abs(diffDias)} dia(s)`
+                  : diffDias === 0 ? "Vence hoje"
+                  : `Vence em ${diffDias} dia(s)`;
+  if (!faixa) return { status:"ok", cor:"entrada", label:textoDias, dias:diffDias, comportamento:"liberar", faixaNome:"" };
+  return { status: faixa.id, cor: faixa.cor||"atencao", label: textoDias, dias: diffDias,
+           comportamento: faixa.comportamento||"liberar", faixaNome: faixa.nome||"" };
 }
 function validadeBadgeFromClass(c){
-  if (!c) return `<span class="sc-tag tag-semvalidade">Sem validade</span>`;
-  const map = { vencido:"tag-vencido", hoje:"tag-hoje", critico:"tag-critico", atencao:"tag-atencao", ok:"tag-entrada" };
-  return `<span class="sc-tag ${map[c.status]}">${c.label}</span>`;
+  if (!c) return `<span class="sc-tag tag-semvalidade">${escapeHtml(param("validadeEmBrancoRotulo"))}</span>`;
+  return `<span class="sc-tag tag-${c.cor||"entrada"}"${c.faixaNome?` title="${escapeHtml(c.faixaNome)}"`:""}>${c.label}</span>`;
 }
 function validadeBadgeHTML(validadeISO){
   return validadeBadgeFromClass(classificarValidade(validadeISO));
@@ -2728,13 +3138,18 @@ function movimentacoesHTML(){
   }
   const materialMap = mapBy(DB.materiais), setorMap = mapBy(DB.setores), tipoMap = mapBy(DB.tipos);
   const movimentosNaSala = DB.movimentos.filter(m => inRoom(m, ROOM));
+  const ULTIMAS_NA_OPERACAO = Math.max(1, Number(param("linhasHistoricoOperacao"))||20);
+  const ultimasMovimentacoes = movimentosNaSala.slice(0, ULTIMAS_NA_OPERACAO);
 
   // mesma tabela usada no relatório de Movimentações, para os dois históricos se comportarem igual
   const historico = movimentosNaSala.length===0
     ? emptyHTML("Nenhuma movimentação registrada ainda nesta visão.")
-    : `<div class="sc-tablewrap">${movTableHTML(movimentosNaSala)}</div>`;
+    : `<div class="sc-tablewrap">${movTableHTML(ultimasMovimentacoes)}</div>
+       ${movimentosNaSala.length > ULTIMAS_NA_OPERACAO
+         ? `<div class="sc-hint" style="margin-top:10px;">Mostrando as ${ULTIMAS_NA_OPERACAO} movimentações mais recentes de ${fmtNum(movimentosNaSala.length)} no total.</div>`
+         : ""}`;
 
-  const materiaisNaSala = DB.materiais.filter(m => inRoom(m, ROOM));
+  const materiaisNaSala = DB.materiais.filter(m => inRoom(m, ROOM) && !isSemiacabado(m));
   const tiposNaSala = DB.tipos.filter(t => inRoom(t, ROOM) && t.especial!=="producao_entrada" && t.especial!=="producao_consumo" && t.especial!=="producao_envio" && t.especial!=="pesagem_individual");
   const colaboradoresNaSala = DB.colaboradores.filter(c => inRoom(c, ROOM));
   const tipoPreSelecionado = MV_CONTINUAR_DRAFT ? DB.tipos.find(t=>t.id===MV_CONTINUAR_DRAFT.tipoMovimentoId) : null;
@@ -2780,7 +3195,9 @@ function movimentacoesHTML(){
   </div>`;
 
   return pageHTML("Movimentações", `Lançar entrada ou saída<span class="sc-roomchip">${icon(roomIcon(ROOM),11)} ${roomLabel(ROOM)}</span>`, "",
-    `${form}${sectionHTML("Histórico","clipboard","",historico)}`);
+    `${form}${sectionHTML("Histórico — últimas movimentações","clipboard",
+      `<button class="sc-btn sc-btn-ghost" onclick="nav('rel_movimentacoes')">${icon("clipboard",14)}<span>Ver histórico completo</span></button>`,
+      historico)}`);
 }
 function irParaMovimentacoesDaSala(roomId){
   ROOM = roomId;
@@ -3188,6 +3605,9 @@ function adicionarItemIndividual(){
     errBox.innerHTML = `<div class="sc-error">${icon("alert",14)} O lote "${escapeHtml(lote)}" só tem ${fmtNum(disponivel)} disponível.</div>`;
     return;
   }
+  const checagemInd = checarValidadeLoteParaPesagem(loteInfo, materialId);
+  if (checagemInd.bloquear){ errBox.innerHTML = `<div class="sc-error">${icon("alert",14)} ${escapeHtml(checagemInd.mensagem)}</div>`; return; }
+  if (checagemInd.avisar && !confirm(`${checagemInd.mensagem}\n\nDeseja usar este lote mesmo assim?`)) return;
   PRODUCAO_SESSAO.itensIndividuais.push({ materialId, lote, quantidade: qtd, validade: loteInfo.validade||"" });
   PESANDO_MATERIAL_ID = null;
   renderMain();
@@ -3213,7 +3633,7 @@ function submitPesagemIndividual(){
   const itens = PRODUCAO_SESSAO.itensIndividuais;
   if (itens.length===0){ errWrap.innerHTML = `<div class="sc-error">${icon("alert",14)} Adicione ao menos um item para pesar.</div>`; return; }
   const observacao = (document.getElementById("pi_obs")?.value || PRODUCAO_SESSAO.observacao || "").trim();
-  if (!observacao){ errWrap.innerHTML = `<div class="sc-error">${icon("alert",14)} A observação é obrigatória na pesagem individual.</div>`; return; }
+  if (!observacao && param("exigirObservacaoPesagemIndividual")){ errWrap.innerHTML = `<div class="sc-error">${icon("alert",14)} A observação é obrigatória na pesagem individual.</div>`; return; }
 
   const materialMap = mapBy(DB.materiais);
   const somaPorMaterialLote = {};
@@ -3434,6 +3854,9 @@ function adicionarAlocacaoPesagem(materialId){
     errBox.innerHTML = `<div class="sc-error">${icon("alert",14)} O lote "${escapeHtml(lote)}" só tem ${fmtNum(disponivel)} disponível. Ajuste o peso ou adicione outro lote depois.</div>`;
     return;
   }
+  const checagem = checarValidadeLoteParaPesagem(loteInfo, materialId);
+  if (checagem.bloquear){ errBox.innerHTML = `<div class="sc-error">${icon("alert",14)} ${escapeHtml(checagem.mensagem)}</div>`; return; }
+  if (checagem.avisar && !confirm(`${checagem.mensagem}\n\nDeseja usar este lote mesmo assim?`)) return;
   if (!PRODUCAO_SESSAO.pesagens[materialId]) PRODUCAO_SESSAO.pesagens[materialId] = [];
   PRODUCAO_SESSAO.pesagens[materialId].push({ quantidade: qtd, lote, validade: loteInfo.validade||"" });
   if (PRODUCAO_SESSAO.loteEmEdicao) delete PRODUCAO_SESSAO.loteEmEdicao[materialId];
@@ -3570,17 +3993,20 @@ function finalizarRegistroProducao(mf, loteProduzido, assinaturaOperador, penden
     pendenteMateriais: !!pendenteMateriais, ingredientesFaltantes,
     criadoEm: agora,
   });
-  // envio imediato ao setor: o semiacabado não fica em estoque, sai assim que é produzido
-  novosRegistros.push({
-    id: uid(), producaoId, misturaFinaId: mf.id,
-    data: dataMov, materialId: mf.materialProduzidoId, tipoMovimentoId: tipoEnvioId,
-    setorId: setorProducao?.id || "", quantidade: quantidadeProduzida, delta: -quantidadeProduzida,
-    lote: loteProduzido, validade: validadeProduzido, documento, observacao: observacao || "Envio automático ao setor logo após a produção.",
-    escopo: escopoMov, colaboradorId: "",
-    assinaturaOperador: null, assinadoEmOperador: null,
-    assinatura: null, assinadoEm: null,
-    criadoEm: agora,
-  });
+  // envio imediato ao setor: por padrão o semiacabado não fica em estoque, sai assim que é produzido
+  // (configurável em Cadastros → Definições)
+  if (param("semiacabadoSaiDoEstoque")){
+    novosRegistros.push({
+      id: uid(), producaoId, misturaFinaId: mf.id,
+      data: dataMov, materialId: mf.materialProduzidoId, tipoMovimentoId: tipoEnvioId,
+      setorId: setorProducao?.id || "", quantidade: quantidadeProduzida, delta: -quantidadeProduzida,
+      lote: loteProduzido, validade: validadeProduzido, documento, observacao: observacao || "Envio automático ao setor logo após a produção.",
+      escopo: escopoMov, colaboradorId: "",
+      assinaturaOperador: null, assinadoEmOperador: null,
+      assinatura: null, assinadoEm: null,
+      criadoEm: agora,
+    });
+  }
   mf.ingredientes.forEach(ing => {
     const alocacoes = PRODUCAO_SESSAO.pesagens[ing.materialId];
     if (!alocacoes) return;
@@ -4064,9 +4490,12 @@ function assinarTodosLotesProduzidos(misturaFinaId){
 }
 
 /* ------------------------------- etiquetas de pesagem (modelo A — compacto) ------------------------------- */
-function perguntarViasEImprimir(itens){
+function perguntarViasEImprimir(itens, tipoEtiqueta){
   if (!itens || itens.length===0){ alert("Nenhum material para gerar etiqueta."); return; }
-  const resposta = prompt("Quantas vias por etiqueta?", "2");
+  const padraoVias = tipoEtiqueta==="material"
+    ? (Number(param("viasEtiquetaMaterial"))||1)
+    : (Number(param("viasEtiquetaPesagem"))||2);
+  const resposta = prompt("Quantas vias por etiqueta?", String(padraoVias));
   if (resposta === null) return;
   const vias = Math.max(1, parseInt(resposta,10) || 2);
   abrirImpressaoEtiquetas(itens, vias);
@@ -4074,7 +4503,7 @@ function perguntarViasEImprimir(itens){
 function abrirImpressaoEtiquetas(itens, vias){
   const etiquetaHTML = (it) => `
     <div class="etiqueta">
-      <div class="et-marca">BIOSYN · MISTURA FINA</div>
+      <div class="et-marca">${escapeHtml(param("nomeEmpresa"))}${param("subtituloEtiqueta")?` · ${escapeHtml(param("subtituloEtiqueta"))}`:""}</div>
       <div class="et-nome">${escapeHtml(it.materialNome)}</div>
       <div class="et-codigo">${escapeHtml(it.materialCodigo||"—")}</div>
       <div class="et-peso"><span class="et-peso-valor">${fmtNum(it.peso)}</span> <span class="et-peso-unidade">${escapeHtml(it.unidade||"")}</span></div>
@@ -4365,6 +4794,9 @@ function adicionarAlocacaoPesagemPendencia(materialId){
     errBox.innerHTML = `<div class="sc-error">${icon("alert",14)} O lote "${escapeHtml(lote)}" só tem ${fmtNum(disponivel)} disponível. Ajuste o peso ou adicione outro lote depois.</div>`;
     return;
   }
+  const checagemPend = checarValidadeLoteParaPesagem(loteInfo, materialId);
+  if (checagemPend.bloquear){ errBox.innerHTML = `<div class="sc-error">${icon("alert",14)} ${escapeHtml(checagemPend.mensagem)}</div>`; return; }
+  if (checagemPend.avisar && !confirm(`${checagemPend.mensagem}\n\nDeseja usar este lote mesmo assim?`)) return;
   if (!COMPLETAR_PENDENCIA.pesagens[materialId]) COMPLETAR_PENDENCIA.pesagens[materialId] = [];
   COMPLETAR_PENDENCIA.pesagens[materialId].push({ quantidade: qtd, lote, validade: loteInfo.validade||"" });
   if (COMPLETAR_PENDENCIA.loteEmEdicao) delete COMPLETAR_PENDENCIA.loteEmEdicao[materialId];
@@ -4495,6 +4927,182 @@ function registrarPesagensPendentes(prodId){
   render();
 }
 
+/* ============================ RELATÓRIO: RASTREABILIDADE POR INSUMOS ============================ */
+/* Cruza cada lançamento de consumo de insumo com o lote de produto acabado que ele originou.
+   Os 4 painéis se filtram entre si: ao escolher um valor, os outros passam a mostrar
+   apenas o que se relaciona com ele. */
+function rastreioLinhas(){
+  const tipoMap = mapBy(DB.tipos);
+  const entradaPorProducao = {};
+  DB.movimentos.forEach(m => {
+    if (m.anulado || !m.producaoId) return;
+    if (tipoMap[m.tipoMovimentoId]?.especial === "producao_entrada") entradaPorProducao[m.producaoId] = m;
+  });
+  const linhas = [];
+  DB.movimentos.forEach(m => {
+    if (m.anulado || !m.producaoId) return;
+    if (tipoMap[m.tipoMovimentoId]?.especial !== "producao_consumo") return;
+    const entrada = entradaPorProducao[m.producaoId];
+    if (!entrada) return;
+    linhas.push({
+      insumoId: m.materialId,
+      insumoLote: m.lote || "",
+      misturaId: m.misturaFinaId || "",
+      produtoLote: entrada.lote || "",
+      producaoId: m.producaoId,
+      quantidade: m.quantidade,
+      data: entrada.data,
+      validadeProduto: entrada.validade || "",
+    });
+  });
+  return linhas;
+}
+function rastreioFiltrar(linhas, exceto){
+  return linhas.filter(l => {
+    if (exceto!=="insumoId"    && RASTREIO.insumoId    && l.insumoId    !== RASTREIO.insumoId) return false;
+    if (exceto!=="insumoLote"  && RASTREIO.insumoLote  && l.insumoLote  !== RASTREIO.insumoLote) return false;
+    if (exceto!=="misturaId"   && RASTREIO.misturaId   && l.misturaId   !== RASTREIO.misturaId) return false;
+    if (exceto!=="produtoLote" && RASTREIO.produtoLote && l.produtoLote !== RASTREIO.produtoLote) return false;
+    return true;
+  });
+}
+function rastreioSelecionar(campo, valor){
+  RASTREIO[campo] = (RASTREIO[campo] === valor) ? "" : valor;
+  renderMain();
+}
+function rastreioLimpar(){
+  RASTREIO = { insumoId:"", insumoLote:"", misturaId:"", produtoLote:"" };
+  renderMain();
+}
+function rastreioPainelHTML(titulo, iconName, campo, itens, buscaId, placeholder){
+  const busca = (document.getElementById(buscaId)?.value || "").toLowerCase();
+  const visiveis = itens.filter(i => i.label.toLowerCase().includes(busca));
+  const corpo = visiveis.length === 0
+    ? `<div class="sc-hint" style="padding:8px 4px;">Nenhum resultado.</div>`
+    : visiveis.map(i => `
+        <button class="sc-colabitem ${RASTREIO[campo]===i.value?"is-active":""}" onclick="rastreioSelecionar('${campo}', ${JSON.stringify(i.value).replace(/"/g,"&quot;")})">
+          <span>${escapeHtml(i.label)}</span>
+          <span class="sc-tag tag-ambas">${i.contagem}</span>
+        </button>`).join("");
+  return `
+    <div style="flex:1 1 280px; min-width:260px; display:flex; flex-direction:column;">
+      <div style="display:flex; align-items:center; gap:6px; margin-bottom:6px;">
+        ${icon(iconName,14)}<strong style="font-size:12.5px; color:var(--navy);">${titulo}</strong>
+        <span style="font-size:11px; color:var(--ink-faint);">(${visiveis.length})</span>
+      </div>
+      <div class="sc-search" style="margin-bottom:6px;">${icon("search",13)}<input id="${buscaId}" oninput="onRastreioBusca('${buscaId}')" placeholder="${escapeHtml(placeholder)}"></div>
+      <div style="display:flex; flex-direction:column; gap:4px; max-height:300px; overflow:auto; border:1px solid var(--line); border-radius:8px; padding:6px;">
+        ${corpo}
+      </div>
+    </div>`;
+}
+function onRastreioBusca(buscaId){
+  const valor = document.getElementById(buscaId)?.value || "";
+  renderMain();
+  const el = document.getElementById(buscaId);
+  if (el){ el.focus(); el.value = valor; el.setSelectionRange(valor.length, valor.length); }
+}
+function rastreabilidadeHTML(){
+  const materialMap = mapBy(DB.materiais), misturaMap = mapBy(DB.misturasFinas);
+  const todas = rastreioLinhas();
+
+  if (todas.length === 0){
+    return pageHTML("Rastreabilidade por Insumos", `Do insumo ao produto acabado, nos dois sentidos<span class="sc-roomchip">${icon(roomIcon(ROOM),11)} ${roomLabel(ROOM)}</span>`, "",
+      emptyHTML("Nenhuma produção registrada ainda. A rastreabilidade é montada a partir dos lotes produzidos e dos insumos consumidos em cada um."));
+  }
+
+  const distintos = (linhas, chaveFn, labelFn) => {
+    const mapa = {};
+    linhas.forEach(l => {
+      const k = chaveFn(l);
+      if (k === "" || k === undefined || k === null) return;
+      if (!mapa[k]) mapa[k] = { value:k, label:labelFn(l), producoes:new Set() };
+      mapa[k].producoes.add(l.producaoId);
+    });
+    return Object.values(mapa)
+      .map(i => ({ value:i.value, label:i.label, contagem:i.producoes.size }))
+      .sort((a,b)=>a.label.localeCompare(b.label, undefined, {numeric:true}));
+  };
+
+  const insumos = distintos(rastreioFiltrar(todas,"insumoId"), l=>l.insumoId,
+    l=>`${materialMap[l.insumoId]?.nome||"—"}${materialMap[l.insumoId]?.codigo?` (${materialMap[l.insumoId].codigo})`:""}`);
+  const lotesInsumo = distintos(rastreioFiltrar(todas,"insumoLote"), l=>l.insumoLote, l=>l.insumoLote);
+  const produtos = distintos(rastreioFiltrar(todas,"misturaId"), l=>l.misturaId,
+    l=>`${misturaMap[l.misturaId]?.nome||"—"}${misturaMap[l.misturaId]?.codigo?` (${misturaMap[l.misturaId].codigo})`:""}`);
+  const lotesProduto = distintos(rastreioFiltrar(todas,"produtoLote"), l=>l.produtoLote, l=>l.produtoLote);
+
+  const selecionados = rastreioFiltrar(todas, null);
+  const algumFiltro = !!(RASTREIO.insumoId || RASTREIO.insumoLote || RASTREIO.misturaId || RASTREIO.produtoLote);
+
+  const chips = [
+    RASTREIO.insumoId    ? `Insumo: ${escapeHtml(materialMap[RASTREIO.insumoId]?.nome||"—")}` : "",
+    RASTREIO.insumoLote  ? `Lote do insumo: ${escapeHtml(RASTREIO.insumoLote)}` : "",
+    RASTREIO.misturaId   ? `Produto: ${escapeHtml(misturaMap[RASTREIO.misturaId]?.nome||"—")}` : "",
+    RASTREIO.produtoLote ? `Lote do produto: ${escapeHtml(RASTREIO.produtoLote)}` : "",
+  ].filter(Boolean);
+
+  const resumo = `
+    <div class="sc-hint" style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+      ${algumFiltro
+        ? `<span>Filtrando por:</span>${chips.map(t=>`<span class="sc-tag tag-entrada">${t}</span>`).join("")}
+           <button class="sc-btn sc-btn-ghost" style="padding:2px 10px; font-size:11.5px;" onclick="rastreioLimpar()">${icon("x",12)}<span>Limpar seleção</span></button>`
+        : `<span>Clique em qualquer item para filtrar os demais painéis. Clique de novo para desmarcar.</span>`}
+    </div>`;
+
+  const paineis = `
+    <div style="display:flex; gap:14px; flex-wrap:wrap; margin-top:10px;">
+      ${rastreioPainelHTML("Insumos","boxes","insumoId", insumos, "rst_busca_insumo","Buscar por código ou nome…")}
+      ${rastreioPainelHTML("Lotes de Insumo","tag","insumoLote", lotesInsumo, "rst_busca_lote_insumo","Buscar lote…")}
+      ${rastreioPainelHTML("Produtos Acabados","flask","misturaId", produtos, "rst_busca_produto","Buscar por código ou nome…")}
+      ${rastreioPainelHTML("Lotes de Produto Acabado","signature","produtoLote", lotesProduto, "rst_busca_lote_produto","Buscar lote…")}
+    </div>`;
+
+  const porProducao = {};
+  selecionados.forEach(l => { (porProducao[l.producaoId] ||= []).push(l); });
+  const linhasTabela = Object.keys(porProducao)
+    .sort((a,b)=> String(porProducao[b][0].data||"").localeCompare(String(porProducao[a][0].data||"")))
+    .map(pid => {
+      const grupo = porProducao[pid];
+      const p = grupo[0];
+      return `<tr>
+        <td class="mono">${fmtDate(p.data)}</td>
+        <td>${escapeHtml(misturaMap[p.misturaId]?.nome||"—")}</td>
+        <td class="mono">${escapeHtml(p.produtoLote||"—")}</td>
+        <td class="mono">${p.validadeProduto?fmtDate(p.validadeProduto):"—"}</td>
+        <td>${grupo.map(l=>`${escapeHtml(materialMap[l.insumoId]?.nome||"—")} <span class="mono" style="color:var(--ink-faint);">[${escapeHtml(l.insumoLote||"—")}]</span> — ${fmtNum(l.quantidade)} ${escapeHtml(materialMap[l.insumoId]?.unidade||"")}`).join("<br>")}</td>
+      </tr>`;
+    }).join("");
+
+  const tabela = sectionHTML(`Cruzamentos encontrados (${Object.keys(porProducao).length} lote(s) de produção)`,"clipboard",
+    `<button class="sc-btn sc-btn-ghost" onclick="exportRastreabilidadeExcel()">${icon("download",14)}<span>Exportar Excel</span></button>`,
+    `<div class="sc-tablewrap"><table class="sc-table">
+      <thead><tr><th>Data</th><th>Produto acabado</th><th>Lote produzido</th><th>Validade</th><th>Insumos utilizados (lote e quantidade)</th></tr></thead>
+      <tbody>${linhasTabela}</tbody></table></div>`);
+
+  return pageHTML("Rastreabilidade por Insumos", `Do insumo ao produto acabado, nos dois sentidos<span class="sc-roomchip">${icon(roomIcon(ROOM),11)} ${roomLabel(ROOM)}</span>`, "",
+    `${resumo}${paineis}<div style="margin-top:16px;">${tabela}</div>`);
+}
+function exportRastreabilidadeExcel(){
+  const materialMap = mapBy(DB.materiais), misturaMap = mapBy(DB.misturasFinas);
+  const linhas = rastreioFiltrar(rastreioLinhas(), null);
+  if (linhas.length===0){ alert("Nenhum cruzamento encontrado para a seleção atual."); return; }
+  const rows = linhas
+    .sort((a,b)=> String(b.data||"").localeCompare(String(a.data||"")))
+    .map(l => ({
+      "Data": fmtDate(l.data),
+      "Produto Acabado": misturaMap[l.misturaId]?.nome || "—",
+      "Código do Produto": misturaMap[l.misturaId]?.codigo || "",
+      "Lote Produzido": l.produtoLote || "",
+      "Validade do Lote": l.validadeProduto ? fmtDate(l.validadeProduto) : "",
+      "Insumo": materialMap[l.insumoId]?.nome || "—",
+      "Código do Insumo": materialMap[l.insumoId]?.codigo || "",
+      "Lote do Insumo": l.insumoLote || "",
+      "Quantidade Utilizada": l.quantidade,
+      "Unidade": materialMap[l.insumoId]?.unidade || "",
+    }));
+  downloadExcel(rows, "Rastreabilidade", `rastreabilidade_${todayISO()}.xlsx`);
+}
+
 /* ================================ RELATÓRIOS ================================ */
 function downloadExcel(rows, sheetName, filename){
   if (typeof XLSX === "undefined"){
@@ -4509,23 +5117,35 @@ function downloadExcel(rows, sheetName, filename){
 function estoquesHTML(){
   const materiaisNaSala = DB.materiais.filter(m => inRoom(m, ROOM) && !isSemiacabado(m));
   const abaixoMinimo = materiaisNaSala.filter(m => (m.estoqueAtual||0) <= (m.estoqueMinimo||0));
-  const statusValidadePorMaterial = materiaisNaSala.map(m => piorValidadeMaterial(m.id)).filter(Boolean);
-  const contarStatus = (status) => statusValidadePorMaterial.filter(c=>c.status===status).length;
-  const qtdVencidos = contarStatus("vencido");
-  const qtdHoje = contarStatus("hoje");
-  const qtdCriticos = contarStatus("critico");
-  const qtdAtencao = contarStatus("atencao");
+  const statusValidadePorMaterial = materiaisNaSala.map(m => piorValidadeMaterial(m.id));
   const categoriaItemsEstoque = [...new Set(materiaisNaSala.map(m=>m.categoria).filter(Boolean))].sort((a,b)=>a.localeCompare(b)).map(c=>({value:c, label:c}));
+
+  // uma tag clicável por faixa de validade configurada, mais a de "sem validade"
+  const faixas = faixasValidadeOrdenadas();
+  const contagemPorFaixa = faixas.map(f => ({
+    faixa: f,
+    qtd: statusValidadePorMaterial.filter(c => c && c.status===f.id).length,
+  })).filter(x => x.qtd > 0);
+  const qtdSemValidade = statusValidadePorMaterial.filter(c => !c).length;
+
+  const tagsHTML = contagemPorFaixa.map(({faixa,qtd}) =>
+    `<button class="sc-tag tag-${faixa.cor||"atencao"} ${ESTOQUE_FILTRO_VALIDADE===faixa.id?"is-tagativa":""}" style="cursor:pointer; border:none;" onclick="filtrarEstoquePorValidade('${faixa.id}')">${qtd} — ${escapeHtml(faixa.nome)}</button>`
+  ).join("") + (qtdSemValidade>0
+    ? `<button class="sc-tag tag-semvalidade ${ESTOQUE_FILTRO_VALIDADE==="sem_validade"?"is-tagativa":""}" style="cursor:pointer; border:none;" onclick="filtrarEstoquePorValidade('sem_validade')">${qtdSemValidade} — ${escapeHtml(param("validadeEmBrancoRotulo"))}</button>`
+    : "");
+
+  const opcoesValidade = `<option value="" ${ESTOQUE_FILTRO_VALIDADE===""?"selected":""}>Todas as validades</option>`
+    + faixas.map(f=>`<option value="${f.id}" ${ESTOQUE_FILTRO_VALIDADE===f.id?"selected":""}>${escapeHtml(f.nome)}</option>`).join("")
+    + `<option value="qualquer_alerta" ${ESTOQUE_FILTRO_VALIDADE==="qualquer_alerta"?"selected":""}>Qualquer alerta de validade</option>`
+    + `<option value="ok" ${ESTOQUE_FILTRO_VALIDADE==="ok"?"selected":""}>Sem alerta</option>`
+    + `<option value="sem_validade" ${ESTOQUE_FILTRO_VALIDADE==="sem_validade"?"selected":""}>${escapeHtml(param("validadeEmBrancoRotulo"))}</option>`;
 
   const estoqueSection = sectionHTML("Estoque atual","boxes",
     `<button class="sc-btn sc-btn-ghost" onclick="exportEstoqueExcel()">${icon("download",14)}<span>Exportar Excel</span></button>`, `
     ${abaixoMinimo.length>0 ? `<div class="sc-hint sc-hint-alert" style="cursor:pointer;" onclick="filtrarEstoquePorSituacao('baixo')" title="Clique para ver apenas estes materiais">${icon("alert",14)} ${abaixoMinimo.length} material(is) abaixo do estoque mínimo.</div>` : ""}
-    ${(qtdVencidos+qtdHoje+qtdCriticos+qtdAtencao)>0 ? `
+    ${tagsHTML ? `
     <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; align-items:center;">
-      ${qtdVencidos>0?`<button class="sc-tag tag-vencido ${ESTOQUE_FILTRO_VALIDADE==="vencido"?"is-tagativa":""}" style="cursor:pointer; border:none;" onclick="filtrarEstoquePorValidade('vencido')">${qtdVencidos} vencido(s)</button>`:""}
-      ${qtdHoje>0?`<button class="sc-tag tag-hoje ${ESTOQUE_FILTRO_VALIDADE==="hoje"?"is-tagativa":""}" style="cursor:pointer; border:none;" onclick="filtrarEstoquePorValidade('hoje')">${qtdHoje} vencendo hoje</button>`:""}
-      ${qtdCriticos>0?`<button class="sc-tag tag-critico ${ESTOQUE_FILTRO_VALIDADE==="critico"?"is-tagativa":""}" style="cursor:pointer; border:none;" onclick="filtrarEstoquePorValidade('critico')">${qtdCriticos} com menos de ${LIMITE_CRITICO_DIAS} dias</button>`:""}
-      ${qtdAtencao>0?`<button class="sc-tag tag-atencao ${ESTOQUE_FILTRO_VALIDADE==="atencao"?"is-tagativa":""}" style="cursor:pointer; border:none;" onclick="filtrarEstoquePorValidade('atencao')">${qtdAtencao} com menos de ${LIMITE_ATENCAO_DIAS} dias</button>`:""}
+      ${tagsHTML}
       ${(ESTOQUE_FILTRO_VALIDADE || (document.getElementById("estoqueFiltroSituacao")?.value)) ? `<button class="sc-btn sc-btn-ghost" style="padding:2px 10px; font-size:11.5px;" onclick="limparFiltrosEstoque()">${icon("x",12)}<span>Limpar filtros</span></button>` : ""}
     </div>` : ""}
     <div class="sc-toolbar">
@@ -4536,16 +5156,7 @@ function estoquesHTML(){
         <option value="baixo">Abaixo do mínimo</option>
         <option value="normal">Normal</option>
       </select>
-      <select class="sc-input" id="estoqueFiltroValidade" onchange="onEstoqueFiltroValidadeChange(this.value)" style="max-width:220px;">
-        <option value="" ${ESTOQUE_FILTRO_VALIDADE===""?"selected":""}>Todas as validades</option>
-        <option value="vencido" ${ESTOQUE_FILTRO_VALIDADE==="vencido"?"selected":""}>Vencidos</option>
-        <option value="hoje" ${ESTOQUE_FILTRO_VALIDADE==="hoje"?"selected":""}>Vencendo hoje</option>
-        <option value="critico" ${ESTOQUE_FILTRO_VALIDADE==="critico"?"selected":""}>Menos de ${LIMITE_CRITICO_DIAS} dias</option>
-        <option value="atencao" ${ESTOQUE_FILTRO_VALIDADE==="atencao"?"selected":""}>Menos de ${LIMITE_ATENCAO_DIAS} dias</option>
-        <option value="qualquer_alerta" ${ESTOQUE_FILTRO_VALIDADE==="qualquer_alerta"?"selected":""}>Qualquer alerta de validade</option>
-        <option value="ok" ${ESTOQUE_FILTRO_VALIDADE==="ok"?"selected":""}>Sem alerta</option>
-        <option value="sem_validade" ${ESTOQUE_FILTRO_VALIDADE==="sem_validade"?"selected":""}>Sem validade informada</option>
-      </select>
+      <select class="sc-input" id="estoqueFiltroValidade" onchange="onEstoqueFiltroValidadeChange(this.value)" style="max-width:220px;">${opcoesValidade}</select>
       <select class="sc-input" id="estoqueOrdenar" onchange="renderEstoqueTable()" style="max-width:200px;">
         <option value="nome_asc">Nome (A-Z)</option>
         <option value="nome_desc">Nome (Z-A)</option>
@@ -4573,9 +5184,12 @@ function filterEstoqueList(materiaisNaSala){
       const pior = piorValidadeMaterial(m.id);
       const status = pior ? pior.status : "sem_validade";
       if (validadeFiltro==="qualquer_alerta"){
-        if (!["vencido","hoje","critico","atencao"].includes(status)) return false;
+        if (!pior || pior.comportamento==="liberar" && pior.status==="ok") return false;
+        if (status==="ok") return false;
       } else if (validadeFiltro==="sem_validade"){
         if (pior) return false;
+      } else if (validadeFiltro==="ok"){
+        if (!pior || pior.status!=="ok") return false;
       } else if (status !== validadeFiltro) return false;
     }
     return `${m.codigo} ${m.nome}`.toLowerCase().includes(q);
@@ -4614,7 +5228,7 @@ function renderEstoqueTable(){
   if (wrap) wrap.innerHTML = estoqueTableHTML(filterEstoqueList(materiaisNaSala));
 }
 function relMovimentacoesHTML(){
-  const materiaisNaSala = DB.materiais.filter(m => inRoom(m, ROOM));
+  const materiaisNaSala = DB.materiais.filter(m => inRoom(m, ROOM) && !isSemiacabado(m));
   const setoresNaSala = DB.setores.filter(s => inRoom(s, ROOM));
   const materialItensRf = materiaisNaSala.slice().sort((a,b)=>a.nome.localeCompare(b.nome)).map(m=>({value:m.id, label:m.nome}));
   const setorItensRf = setoresNaSala.slice().sort((a,b)=>a.nome.localeCompare(b.nome)).map(s=>({value:s.id, label:s.nome}));
@@ -4893,7 +5507,7 @@ function relatoriosAnaliseHTML(){
 }
 function consumoMateriaisListHTML(){
   const q = (document.getElementById("consumoMatBusca")?.value || "").toLowerCase();
-  const materiaisNaSala = DB.materiais.filter(m => inRoom(m, ROOM) && `${m.nome} ${m.codigo||""}`.toLowerCase().includes(q)).sort((a,b)=>a.nome.localeCompare(b.nome));
+  const materiaisNaSala = DB.materiais.filter(m => inRoom(m, ROOM) && !isSemiacabado(m) && `${m.nome} ${m.codigo||""}`.toLowerCase().includes(q)).sort((a,b)=>a.nome.localeCompare(b.nome));
   if (materiaisNaSala.length===0) return emptyHTML("Nenhum material encontrado.");
   return `<div style="display:flex; flex-direction:column; gap:4px; max-height:220px; overflow:auto; border:1px solid var(--line); border-radius:8px; padding:8px 10px;">
       ${materiaisNaSala.map(m=>`
@@ -4913,7 +5527,7 @@ function onConsumoMaterialToggle(materialId, checked){
   renderConsumoTable();
 }
 function selecionarTodosConsumo(){
-  const materiaisNaSala = DB.materiais.filter(m => inRoom(m, ROOM));
+  const materiaisNaSala = DB.materiais.filter(m => inRoom(m, ROOM) && !isSemiacabado(m));
   materiaisNaSala.forEach(m => CONSUMO_MATERIAIS_SELECIONADOS.add(m.id));
   renderMain();
 }
