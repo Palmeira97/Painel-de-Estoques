@@ -852,6 +852,7 @@ let IP_RELATORIO_SETORES_SELECIONADOS = new Set();
 let PRODUCAO_SESSAO = null;
 let PESAGEM_MODO = "mistura";
 let PESANDO_MATERIAL_ID = null;
+let SUBSTITUINDO_INGREDIENTE_ID = null;
 let ITENS_PRODUZIDOS_EXPANDIDO = new Set();
 let MOV_EDITANDO_ID = null;
 let ESTOQUE_FILTRO_VALIDADE = "";
@@ -3375,7 +3376,7 @@ function reativarMovimento(id){
 function criarSessaoProducaoVazia(){
   return {
     misturaFinaId:"", data: todayISO(), lote:"", validade:"", documento:"", observacao:"", quantidadeAlvo:"",
-    pesagens:{}, confirmados:{}, loteEmEdicao:{},
+    pesagens:{}, confirmados:{}, loteEmEdicao:{}, substituicoes:{}, substituicaoEmEdicao:{},
     itensIndividuais: [], materialIndividualAtual: "", loteIndividualEmEdicao: "",
   };
 }
@@ -3690,7 +3691,10 @@ function onProducaoMisturaChange(value){
   PRODUCAO_SESSAO.pesagens = {};
   PRODUCAO_SESSAO.confirmados = {};
   PRODUCAO_SESSAO.loteEmEdicao = {};
+  PRODUCAO_SESSAO.substituicoes = {};
+  PRODUCAO_SESSAO.substituicaoEmEdicao = {};
   PESANDO_MATERIAL_ID = null;
+  SUBSTITUINDO_INGREDIENTE_ID = null;
   renderMain();
 }
 function listaTecnicaPesagemHTML(){
@@ -3699,55 +3703,112 @@ function listaTecnicaPesagemHTML(){
   const quantidadeAlvo = Number(PRODUCAO_SESSAO.quantidadeAlvo) || 0;
   const materialMap = mapBy(DB.materiais);
   const linhas = mf.ingredientes.map(ing => {
-    const material = materialMap[ing.materialId];
+    const materialOriginal = materialMap[ing.materialId];
+    const substituicao = PRODUCAO_SESSAO.substituicoes[ing.materialId];
+    const materialEfetivo = substituicao ? materialMap[substituicao.materialSubstitutoId] : materialOriginal;
     const alvo = round3(ing.percentual/100 * quantidadeAlvo);
     const alocacoes = PRODUCAO_SESSAO.pesagens[ing.materialId] || [];
     const pesando = PESANDO_MATERIAL_ID === ing.materialId;
+    const substituindo = SUBSTITUINDO_INGREDIENTE_ID === ing.materialId;
     let acaoHTML;
     if (alocacoes.length>0){
       const total = round3(alocacoes.reduce((acc,a)=>acc+a.quantidade,0));
       const lotesTexto = alocacoes.map(a=>`${a.lote||"—"} (${fmtNum(a.quantidade)})`).join(", ");
-      acaoHTML = `<span class="sc-tag tag-entrada">${icon("check",11)} Pesado: ${fmtNum(total)} ${escapeHtml(material?.unidade||"")} · ${escapeHtml(lotesTexto)}</span>
+      acaoHTML = `<span class="sc-tag tag-entrada">${icon("check",11)} Pesado: ${fmtNum(total)} ${escapeHtml(materialEfetivo?.unidade||"")} · ${escapeHtml(lotesTexto)}</span>
         <button class="sc-iconbtn" title="Repesar" onclick="reabrirPesagem('${ing.materialId}')">${icon("edit",13)}</button>`;
-    } else if (pesando){
+    } else if (pesando || substituindo){
       acaoHTML = "";
     } else {
-      acaoHTML = `<button class="sc-btn sc-btn-ghost" onclick="abrirPesagem('${ing.materialId}')">${icon("edit",13)}<span>Pesar</span></button>`;
+      acaoHTML = `<button class="sc-btn sc-btn-ghost" onclick="abrirPesagem('${ing.materialId}')">${icon("edit",13)}<span>Pesar</span></button>
+        <button class="sc-btn sc-btn-ghost" onclick="${substituicao?`desfazerSubstituicao('${ing.materialId}')`:`abrirSubstituicao('${ing.materialId}')`}">${icon(substituicao?"x":"repeat",13)}<span>${substituicao?"Desfazer substituição":"Substituir"}</span></button>`;
     }
-    const formPesagem = pesando ? pesagemFormHTML(ing.materialId, alvo, material) : "";
+    const avisoSubstituicao = substituicao ? `<div class="sc-hint" style="background:var(--amber-bg); border:1px solid var(--amber); border-radius:6px; padding:6px 10px; margin-top:2px;">${icon("alert",12)} Substituído por <strong>${escapeHtml(materialEfetivo?.nome||"—")}</strong> — Justificativa: ${escapeHtml(substituicao.justificativa)}</div>` : "";
+    const formPesagem = pesando ? pesagemFormHTML(ing.materialId, alvo, materialEfetivo) : "";
+    const formSubstituicao = substituindo ? substituicaoFormHTML(ing.materialId, materialOriginal) : "";
     return `<div class="sc-formpanel is-plain" style="margin-bottom:10px;">
       <div class="sc-formpanelBody" style="gap:8px;">
         <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
           <div>
-            <div style="font-weight:700; color:var(--navy);">${escapeHtml(material?.nome||"—")}</div>
-            <div class="sc-hint">${fmtNum(ing.percentual)}% do total — Peso alvo: ${fmtNum(alvo)} ${escapeHtml(material?.unidade||"")}</div>
+            <div style="font-weight:700; color:var(--navy);">${escapeHtml(materialOriginal?.nome||"—")}</div>
+            <div class="sc-hint">${fmtNum(ing.percentual)}% do total — Peso alvo: ${fmtNum(alvo)} ${escapeHtml(materialOriginal?.unidade||"")}</div>
           </div>
-          <div style="display:flex; align-items:center; gap:8px;">${acaoHTML}</div>
+          <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">${acaoHTML}</div>
         </div>
+        ${avisoSubstituicao}
         ${formPesagem}
+        ${formSubstituicao}
       </div>
     </div>`;
   }).join("");
   return `<div id="pr_listaTecnicaWrap">${linhas}</div>`;
 }
-function pesagemFormHTML(materialId, alvo, material){
-  const confirmado = !!PRODUCAO_SESSAO.confirmados?.[materialId];
+function substituicaoFormHTML(ingredienteId, materialOriginal){
+  const itens = DB.materiais.filter(m=>m.id!==ingredienteId).slice().sort((a,b)=>a.nome.localeCompare(b.nome))
+    .map(m=>({value:m.id, label:`${m.nome}${m.codigo?` (${m.codigo})`:""}`}));
+  const atual = PRODUCAO_SESSAO.substituicaoEmEdicao?.[ingredienteId] || "";
+  return `
+    <div style="border-top:1px dashed var(--line); padding-top:10px;">
+      <div class="sc-hint">Selecione o material que será usado no lugar de <strong>${escapeHtml(materialOriginal?.nome||"—")}</strong> e informe o motivo da substituição.</div>
+      <div class="sc-fieldrow" style="margin-top:8px;">
+        <label class="sc-field is-wide"><span>Material substituto</span>${comboHTML(`sub_material_${ingredienteId}`, itens, atual, {placeholder:"Digite para buscar…", onChange:(v)=>onSubstitutoMaterialChange(ingredienteId, v)})}</label>
+      </div>
+      <label class="sc-field"><span>Justificativa <span style="color:var(--danger);">*</span></span><textarea class="sc-input" id="sub_justificativa_${ingredienteId}" rows="2" placeholder="Ex.: lote do insumo original reprovado, ajuste provisório de formulação."></textarea></label>
+      <div id="sub_erro_${ingredienteId}"></div>
+      <div style="display:flex; gap:8px; margin-top:8px;">
+        <button class="sc-btn sc-btn-primary" onclick="confirmarSubstituicao('${ingredienteId}')">${icon("check",13)}<span>Confirmar substituição</span></button>
+        <button class="sc-btn sc-btn-ghost" onclick="cancelarSubstituicao()">Cancelar</button>
+      </div>
+    </div>`;
+}
+function onSubstitutoMaterialChange(ingredienteId, value){
+  if (!PRODUCAO_SESSAO.substituicaoEmEdicao) PRODUCAO_SESSAO.substituicaoEmEdicao = {};
+  PRODUCAO_SESSAO.substituicaoEmEdicao[ingredienteId] = value;
+  renderMain();
+}
+function abrirSubstituicao(ingredienteId){
+  SUBSTITUINDO_INGREDIENTE_ID = ingredienteId;
+  PESANDO_MATERIAL_ID = null;
+  renderMain();
+}
+function cancelarSubstituicao(){
+  SUBSTITUINDO_INGREDIENTE_ID = null;
+  renderMain();
+}
+function confirmarSubstituicao(ingredienteId){
+  const errBox = document.getElementById(`sub_erro_${ingredienteId}`);
+  const materialSubstitutoId = PRODUCAO_SESSAO.substituicaoEmEdicao?.[ingredienteId] || document.getElementById(`sub_material_${ingredienteId}`)?.value;
+  const justificativa = document.getElementById(`sub_justificativa_${ingredienteId}`).value.trim();
+  if (!materialSubstitutoId){ errBox.innerHTML = `<div class="sc-error">${icon("alert",14)} Selecione o material substituto.</div>`; return; }
+  if (!justificativa){ errBox.innerHTML = `<div class="sc-error">${icon("alert",14)} Informe a justificativa da substituição.</div>`; return; }
+  PRODUCAO_SESSAO.substituicoes[ingredienteId] = { materialSubstitutoId, justificativa };
+  SUBSTITUINDO_INGREDIENTE_ID = null;
+  if (PRODUCAO_SESSAO.substituicaoEmEdicao) delete PRODUCAO_SESSAO.substituicaoEmEdicao[ingredienteId];
+  abrirPesagem(ingredienteId);
+}
+function desfazerSubstituicao(ingredienteId){
+  if (!confirm("Desfazer esta substituição? O ingrediente volta a usar o material original da formulação.")) return;
+  delete PRODUCAO_SESSAO.substituicoes[ingredienteId];
+  renderMain();
+}
+function pesagemFormHTML(ingredienteId, alvo, material){
+  // "material" aqui é o material EFETIVO a ser pesado (o substituto, se houver substituição para este ingrediente)
+  const confirmado = !!PRODUCAO_SESSAO.confirmados?.[ingredienteId];
   if (material?.codigoBarras && !confirmado){
     return `
       <div style="border-top:1px dashed var(--line); padding-top:10px;">
         <div class="sc-hint">Escaneie o código de barras do material para confirmar que é o item correto antes de pesar.</div>
         <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap;">
-          <button class="sc-btn sc-btn-primary" onclick="escanearConfirmacaoMaterial('${materialId}')">${icon("camera",13)}<span>Escanear código de barras</span></button>
+          <button class="sc-btn sc-btn-primary" onclick="escanearConfirmacaoMaterial('${ingredienteId}', '${material.id}')">${icon("camera",13)}<span>Escanear código de barras</span></button>
           <button class="sc-btn sc-btn-ghost" onclick="cancelarPesagem()">Cancelar</button>
         </div>
-        <div id="confirmacao_erro_${materialId}"></div>
+        <div id="confirmacao_erro_${ingredienteId}"></div>
       </div>`;
   }
-  const alocacoes = PRODUCAO_SESSAO.pesagens[materialId] || [];
-  const lotes = getLotesEmEstoque(materialId);
+  const alocacoes = PRODUCAO_SESSAO.pesagens[ingredienteId] || [];
+  const lotes = getLotesEmEstoque(material?.id);
   const jaAlocadoPorLote = {};
   alocacoes.forEach(a => { jaAlocadoPorLote[a.lote] = round3((jaAlocadoPorLote[a.lote]||0) + a.quantidade); });
-  const loteEmEdicao = PRODUCAO_SESSAO.loteEmEdicao?.[materialId] || "";
+  const loteEmEdicao = PRODUCAO_SESSAO.loteEmEdicao?.[ingredienteId] || "";
 
   const resumoAlocacoes = alocacoes.length>0 ? `
     <div style="display:flex; flex-direction:column; gap:4px; width:100%;">
@@ -3755,8 +3816,8 @@ function pesagemFormHTML(materialId, alvo, material){
         <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:6px 10px;">
           <span class="sc-hint" style="margin:0;">Lote ${escapeHtml(a.lote||"—")}: ${fmtNum(a.quantidade)} ${escapeHtml(material?.unidade||"")}</span>
           <span style="display:flex; gap:4px;">
-            <button class="sc-iconbtn" title="Imprimir etiqueta desta pesagem" onclick="imprimirEtiquetaAlocacao('${materialId}', ${i})">${icon("download",12)}</button>
-            <button class="sc-iconbtn" title="Remover" onclick="removerAlocacaoPesagem('${materialId}', ${i})">${icon("x",12)}</button>
+            <button class="sc-iconbtn" title="Imprimir etiqueta desta pesagem" onclick="imprimirEtiquetaAlocacao('${ingredienteId}', ${i})">${icon("download",12)}</button>
+            <button class="sc-iconbtn" title="Remover" onclick="removerAlocacaoPesagem('${ingredienteId}', ${i})">${icon("x",12)}</button>
           </span>
         </div>`).join("")}
     </div>` : "";
@@ -3773,27 +3834,27 @@ function pesagemFormHTML(materialId, alvo, material){
     <div style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap; border-top:1px dashed var(--line); padding-top:10px;">
       ${material?.codigoBarras ? `<div class="sc-hint" style="width:100%; margin:0 0 2px;">${icon("check",12)} Material confirmado por código de barras.</div>` : `<div class="sc-hint" style="width:100%; margin:0 0 2px;">${icon("alert",12)} Este material não tem código de barras cadastrado — confirmação por leitura não disponível.</div>`}
       ${resumoAlocacoes}
-      <label class="sc-field is-wide"><span>Lote do material <span style="color:var(--danger);">*</span></span>${comboHTML(`pesar_lote_${materialId}`, loteItens, loteEmEdicao, {placeholder:"Digite para buscar o lote…", onChange:(v)=>onLotePesagemChange(materialId, v)})}</label>
-      <label class="sc-field"><span>Peso pesado neste lote</span><input class="sc-input" type="number" min="0" step="0.001" id="pesar_qtd_${materialId}" placeholder="${totalPesado>0?`Faltam p/ alvo: ${fmtNum(faltamParaAlvo)}`:`Alvo: ${fmtNum(alvo)}`}" value="" ${loteEmEdicao?"":"disabled"}></label>
-      <button class="sc-btn sc-btn-ghost" ${loteEmEdicao?"":"disabled"} onclick="adicionarAlocacaoPesagem('${materialId}')">${icon("plus",13)}<span>Adicionar lote</span></button>
-      <div id="pesar_erro_${materialId}" style="width:100%;"></div>
+      <label class="sc-field is-wide"><span>Lote do material <span style="color:var(--danger);">*</span></span>${comboHTML(`pesar_lote_${ingredienteId}`, loteItens, loteEmEdicao, {placeholder:"Digite para buscar o lote…", onChange:(v)=>onLotePesagemChange(ingredienteId, v)})}</label>
+      <label class="sc-field"><span>Peso pesado neste lote</span><input class="sc-input" type="number" min="0" step="0.001" id="pesar_qtd_${ingredienteId}" placeholder="${totalPesado>0?`Faltam p/ alvo: ${fmtNum(faltamParaAlvo)}`:`Alvo: ${fmtNum(alvo)}`}" value="" ${loteEmEdicao?"":"disabled"}></label>
+      <button class="sc-btn sc-btn-ghost" ${loteEmEdicao?"":"disabled"} onclick="adicionarAlocacaoPesagem('${ingredienteId}')">${icon("plus",13)}<span>Adicionar lote</span></button>
+      <div id="pesar_erro_${ingredienteId}" style="width:100%;"></div>
       <div style="display:flex; gap:8px; width:100%;">
-        <button class="sc-btn sc-btn-primary" ${alocacoes.length===0?"disabled":""} onclick="concluirPesagemItem('${materialId}')">${icon("check",13)}<span>Concluir pesagem deste item</span></button>
+        <button class="sc-btn sc-btn-primary" ${alocacoes.length===0?"disabled":""} onclick="concluirPesagemItem('${ingredienteId}')">${icon("check",13)}<span>Concluir pesagem deste item</span></button>
         <button class="sc-btn sc-btn-ghost" onclick="cancelarPesagem()">Cancelar</button>
       </div>
     </div>`;
 }
-function escanearConfirmacaoMaterial(materialId){
+function escanearConfirmacaoMaterial(ingredienteId, materialEfetivoId){
   openScanner((text) => {
-    const material = DB.materiais.find(m=>m.id===materialId);
+    const material = DB.materiais.find(m=>m.id===(materialEfetivoId||ingredienteId));
     const codeLower = (text||"").trim().toLowerCase();
     if (material && (material.codigoBarras||"").trim().toLowerCase() === codeLower){
       if (!PRODUCAO_SESSAO.confirmados) PRODUCAO_SESSAO.confirmados = {};
-      PRODUCAO_SESSAO.confirmados[materialId] = true;
+      PRODUCAO_SESSAO.confirmados[ingredienteId] = true;
       renderMain();
     } else {
       renderMain();
-      const errBox = document.getElementById(`confirmacao_erro_${materialId}`);
+      const errBox = document.getElementById(`confirmacao_erro_${ingredienteId}`);
       if (errBox) errBox.innerHTML = `<div class="sc-error">${icon("alert",14)} Código escaneado não corresponde a "${escapeHtml(material?.nome||"?")}". Verifique se pegou o material certo.</div>`;
     }
   });
@@ -3820,7 +3881,9 @@ function adicionarAlocacaoPesagem(materialId){
   const qtd = Number(document.getElementById(`pesar_qtd_${materialId}`).value);
   if (!lote){ errBox.innerHTML = `<div class="sc-error">${icon("alert",14)} Selecione o lote antes de informar o peso.</div>`; return; }
   if (!qtd || qtd<=0){ errBox.innerHTML = `<div class="sc-error">${icon("alert",14)} Informe um peso maior que zero.</div>`; return; }
-  const lotes = getLotesEmEstoque(materialId);
+  const substituicao = PRODUCAO_SESSAO.substituicoes[materialId];
+  const materialEfetivoId = substituicao ? substituicao.materialSubstitutoId : materialId;
+  const lotes = getLotesEmEstoque(materialEfetivoId);
   const loteInfo = lotes.find(l=>l.lote===lote);
   const alocacoesAtuais = PRODUCAO_SESSAO.pesagens[materialId] || [];
   const jaAlocado = round3(alocacoesAtuais.filter(a=>a.lote===lote).reduce((acc,a)=>acc+a.quantidade,0));
@@ -3829,7 +3892,7 @@ function adicionarAlocacaoPesagem(materialId){
     errBox.innerHTML = `<div class="sc-error">${icon("alert",14)} O lote "${escapeHtml(lote)}" só tem ${fmtNum(disponivel)} disponível. Ajuste o peso ou adicione outro lote depois.</div>`;
     return;
   }
-  const checagem = checarValidadeLoteParaPesagem(loteInfo, materialId);
+  const checagem = checarValidadeLoteParaPesagem(loteInfo, materialEfetivoId);
   if (checagem.bloquear){ errBox.innerHTML = `<div class="sc-error">${icon("alert",14)} ${escapeHtml(checagem.mensagem)}</div>`; return; }
   if (checagem.avisar && !confirm(`${checagem.mensagem}\n\nDeseja usar este lote mesmo assim?`)) return;
   if (!PRODUCAO_SESSAO.pesagens[materialId]) PRODUCAO_SESSAO.pesagens[materialId] = [];
@@ -3841,7 +3904,9 @@ function imprimirEtiquetaAlocacao(materialId, index){
   const alocacoes = PRODUCAO_SESSAO.pesagens[materialId];
   if (!alocacoes || !alocacoes[index]) return;
   const pesagem = alocacoes[index];
-  const material = DB.materiais.find(m=>m.id===materialId);
+  const substituicao = PRODUCAO_SESSAO.substituicoes[materialId];
+  const materialEfetivoId = substituicao ? substituicao.materialSubstitutoId : materialId;
+  const material = DB.materiais.find(m=>m.id===materialEfetivoId);
   const mf = DB.misturasFinas.find(m=>m.id===PRODUCAO_SESSAO.misturaFinaId);
   const loteProduzido = document.getElementById("pr_lote")?.value || PRODUCAO_SESSAO.lote || "";
   const dataMov = document.getElementById("pr_data")?.value || PRODUCAO_SESSAO.data || todayISO();
@@ -3865,7 +3930,9 @@ function concluirPesagemItem(materialId){
   const alvo = ing ? round3(ing.percentual/100 * quantidadeAlvoTotal) : 0;
   const alocacoes = PRODUCAO_SESSAO.pesagens[materialId] || [];
   const totalPesado = round3(alocacoes.reduce((acc,a)=>acc+a.quantidade,0));
-  const material = DB.materiais.find(m=>m.id===materialId);
+  const substituicao = PRODUCAO_SESSAO.substituicoes[materialId];
+  const materialEfetivoId = substituicao ? substituicao.materialSubstitutoId : materialId;
+  const material = DB.materiais.find(m=>m.id===materialEfetivoId);
 
   const resultado = validarErroPesagem(totalPesado, alvo, material?.unidade);
   if (resultado.bloqueado){
@@ -3917,13 +3984,15 @@ function submitProducao(){
   const materialMap = mapBy(DB.materiais);
   for (const materialId of pesadosIds){
     const alocacoes = PRODUCAO_SESSAO.pesagens[materialId];
-    const lotes = getLotesEmEstoque(materialId);
+    const substituicaoRevalida = PRODUCAO_SESSAO.substituicoes[materialId];
+    const materialEfetivoIdRevalida = substituicaoRevalida ? substituicaoRevalida.materialSubstitutoId : materialId;
+    const lotes = getLotesEmEstoque(materialEfetivoIdRevalida);
     const somaPorLote = {};
     alocacoes.forEach(a => { somaPorLote[a.lote] = round3((somaPorLote[a.lote]||0) + a.quantidade); });
     for (const [lote, soma] of Object.entries(somaPorLote)){
       const loteInfo = lotes.find(l=>l.lote===lote);
       if (!loteInfo || soma > loteInfo.saldo){
-        errWrap.innerHTML = `<div class="sc-error">${icon("alert",14)} O lote "${escapeHtml(lote)}" de "${escapeHtml(materialMap[materialId]?.nome||"?")}" não tem mais saldo suficiente. Repese este item.</div>`;
+        errWrap.innerHTML = `<div class="sc-error">${icon("alert",14)} O lote "${escapeHtml(lote)}" de "${escapeHtml(materialMap[materialEfetivoIdRevalida]?.nome||"?")}" não tem mais saldo suficiente. Repese este item.</div>`;
         return;
       }
     }
@@ -3955,6 +4024,12 @@ function finalizarRegistroProducao(mf, loteProduzido, assinaturaOperador, penden
   const materialMap = mapBy(DB.materiais);
   const ingredientesFaltantes = mf.ingredientes.filter(ing => !(PRODUCAO_SESSAO.pesagens[ing.materialId]||[]).length).map(ing => materialMap[ing.materialId]?.nome || ing.materialId);
   const quantidadeProduzida = round3(Object.values(PRODUCAO_SESSAO.pesagens).reduce((acc, alocacoes) => acc + alocacoes.reduce((a2,al)=>a2+al.quantidade,0), 0));
+  const substituicoesResumo = mf.ingredientes
+    .filter(ing => PRODUCAO_SESSAO.substituicoes[ing.materialId])
+    .map(ing => {
+      const sub = PRODUCAO_SESSAO.substituicoes[ing.materialId];
+      return { originalMaterialId: ing.materialId, substitutoMaterialId: sub.materialSubstitutoId, justificativa: sub.justificativa };
+    });
 
   const novosRegistros = [];
   novosRegistros.push({
@@ -3966,6 +4041,7 @@ function finalizarRegistroProducao(mf, loteProduzido, assinaturaOperador, penden
     assinaturaOperador, assinadoEmOperador: agora,
     assinatura: null, assinadoEm: null,
     pendenteMateriais: !!pendenteMateriais, ingredientesFaltantes,
+    temSubstituicao: substituicoesResumo.length>0, substituicoes: substituicoesResumo,
     criadoEm: agora,
   });
   // envio imediato ao setor: por padrão o semiacabado não fica em estoque, sai assim que é produzido
@@ -3985,15 +4061,18 @@ function finalizarRegistroProducao(mf, loteProduzido, assinaturaOperador, penden
   mf.ingredientes.forEach(ing => {
     const alocacoes = PRODUCAO_SESSAO.pesagens[ing.materialId];
     if (!alocacoes) return;
+    const substituicao = PRODUCAO_SESSAO.substituicoes[ing.materialId];
+    const materialConsumidoId = substituicao ? substituicao.materialSubstitutoId : ing.materialId;
     alocacoes.forEach(pesagem => {
       novosRegistros.push({
         id: uid(), producaoId, misturaFinaId: mf.id,
-        data: dataMov, materialId: ing.materialId, tipoMovimentoId: tipoConsumoId,
+        data: dataMov, materialId: materialConsumidoId, tipoMovimentoId: tipoConsumoId,
         setorId: setorProducao?.id || "", quantidade: pesagem.quantidade, delta: -pesagem.quantidade,
         lote: pesagem.lote, validade: pesagem.validade||"", documento, observacao,
         escopo: escopoMov, colaboradorId: "",
         assinaturaOperador: null, assinadoEmOperador: null,
         assinatura: null, assinadoEm: null,
+        ingredienteOriginalId: substituicao ? ing.materialId : null,
         criadoEm: agora,
       });
     });
@@ -4110,6 +4189,7 @@ function misturasProduzidasHTML(toggleModo){
   let lotesAtual = (porMistura[SELECTED_MISTURA_ID]||[]).filter(m => {
     if (filtroSituacao==="completo" && m.pendenteMateriais) return false;
     if (filtroSituacao==="faltam" && !m.pendenteMateriais) return false;
+    if (filtroSituacao==="substituicao" && !m.temSubstituicao) return false;
     if (filtroSituacao==="aprovado" && !m.assinatura) return false;
     if (filtroSituacao==="pendente_aprovacao" && m.assinatura) return false;
     return true;
@@ -4133,9 +4213,10 @@ function misturasProduzidasHTML(toggleModo){
     const aprovacaoHTML = prod.assinatura
       ? `<span class="sc-tag tag-entrada">Aprovado</span>`
       : `<span class="sc-tag tag-saida">Pendente</span> <button class="sc-iconbtn" title="Aprovar lote" ${responsavelAtual?"":"disabled"} onclick="event.stopPropagation();assinarLoteProduzido('${prod.id}')">${icon("signature",13)}</button>`;
-    const situacaoHTML = prod.pendenteMateriais
-      ? `<span class="sc-tag tag-saida" title="Faltam: ${escapeHtml((prod.ingredientesFaltantes||[]).join(", "))}">${icon("alert",11)} Faltam materiais</span>`
-      : `<span class="sc-tag tag-entrada">Completo</span>`;
+    const situacaoHTML = `${prod.pendenteMateriais
+        ? `<span class="sc-tag tag-saida" title="Faltam: ${escapeHtml((prod.ingredientesFaltantes||[]).join(", "))}">${icon("alert",11)} Faltam materiais</span>`
+        : `<span class="sc-tag tag-entrada">Completo</span>`}
+      ${prod.temSubstituicao ? `<span class="sc-tag tag-atencao" title="Houve substituição de insumo neste lote">${icon("repeat",11)} Substituição</span>` : ""}`;
     const linha = `<tr class="sc-rowclick" onclick="toggleItemProduzido('${prod.id}')">
       <td class="sc-expandcell">${icon(expandido?"chevronDown":"chevronRight",13)}</td>
       <td class="mono">${escapeHtml(prod.lote||"—")}</td>
@@ -4146,12 +4227,18 @@ function misturasProduzidasHTML(toggleModo){
       <td>${prod.assinaturaOperador ? `<img src="${prod.assinaturaOperador}" alt="assinatura" style="height:22px; border:1px solid var(--line); border-radius:4px; background:#fff;">` : "—"}</td>
       <td onclick="event.stopPropagation();">${aprovacaoHTML}</td>
     </tr>`;
+    const substituicoesHTML = (prod.substituicoes||[]).map(sub => {
+      const original = materialMap[sub.originalMaterialId];
+      const substituto = materialMap[sub.substitutoMaterialId];
+      return `<div>${icon("repeat",12)} <strong>${escapeHtml(original?.nome||"—")}</strong> substituído por <strong>${escapeHtml(substituto?.nome||"—")}</strong> — ${escapeHtml(sub.justificativa||"")}</div>`;
+    }).join("");
     const detalhe = expandido ? `<tr class="sc-rowdetail"><td colspan="8">
       ${prod.pendenteMateriais ? `<div class="sc-hint sc-hint-alert">${icon("alert",13)} MFs faltando materiais: ${escapeHtml((prod.ingredientesFaltantes||[]).join(", "))}.</div>` : ""}
+      ${prod.temSubstituicao ? `<div class="sc-hint" style="background:var(--amber-bg); border:1px solid var(--amber); border-radius:6px; padding:8px 10px; display:flex; flex-direction:column; gap:4px;">${substituicoesHTML}</div>` : ""}
       <table class="sc-table sc-subtable">
         <thead><tr><th>Ingrediente</th><th class="num">Quantidade utilizada</th><th>Lote do ingrediente</th><th></th></tr></thead>
         <tbody>${ingredientes.length===0 ? `<tr><td colspan="4" style="text-align:center;color:var(--ink-faint);">Nenhum ingrediente registrado para este lote.</td></tr>` : ingredientes.map(ing=>`
-          <tr><td>${escapeHtml(materialMap[ing.materialId]?.nome||"—")}</td>
+          <tr><td>${escapeHtml(materialMap[ing.materialId]?.nome||"—")}${ing.ingredienteOriginalId ? ` <span class="sc-tag tag-atencao" style="margin-left:4px;" title="Substituiu ${escapeHtml(materialMap[ing.ingredienteOriginalId]?.nome||"—")}">substituição</span>` : ""}</td>
           <td class="num mono">${fmtNum(ing.quantidade)} ${escapeHtml(materialMap[ing.materialId]?.unidade||"")}</td>
           <td class="mono">${ing.lote?escapeHtml(ing.lote):"(sem lote)"}</td>
           <td class="rowActions"><button class="sc-iconbtn" title="Imprimir etiqueta deste material" onclick="event.stopPropagation();imprimirEtiquetaMaterial('${ing.id}')">${icon("download",13)}</button></td>
@@ -4189,6 +4276,7 @@ function misturasProduzidasHTML(toggleModo){
             <option value="">Todas as situações</option>
             <option value="completo">Completo</option>
             <option value="faltam">Faltam materiais</option>
+            <option value="substituicao">Com substituição</option>
             <option value="aprovado">Aprovado</option>
             <option value="pendente_aprovacao">Pendente aprovação</option>
           </select>
@@ -4419,7 +4507,7 @@ function gerarRelatorioProducaoExcel(){
       "Data": fmtDate(m.data),
       "Quantidade": m.quantidade,
       "Unidade": materialMap[m.materialId]?.unidade || "",
-      "Situação": m.pendenteMateriais ? "Faltam materiais" : "Completo",
+      "Situação": (m.pendenteMateriais ? "Faltam materiais" : "Completo") + (m.temSubstituicao ? " + Substituição" : ""),
       "Aprovação do setor": m.assinatura ? "Aprovado" : "Pendente",
     };
   });
