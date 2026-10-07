@@ -98,6 +98,10 @@
   .sc-table tbody tr:hover{ background: #FAFCFE; }
   .sc-rowclick{ cursor:pointer; }
   .sc-rowclick:hover{ background: #EAF2FA; }
+  tr.is-alterado{ background: var(--amber-bg); }
+  tr.is-alterado > td:first-child{ box-shadow: inset 4px 0 0 var(--amber); }
+  tr.is-alterado.sc-rowclick:hover{ background: #F7E6C4; }
+  .kb-alt{ display:inline-block; margin-left:6px; padding:0 6px; border-radius:8px; font-size:10px; font-weight:700; color:var(--amber); background:var(--amber-bg); border:1px solid var(--amber); }
   .sc-expandcell{ width:20px; color: var(--ink-faint); }
   .sc-rowdetail td{ background: var(--line-soft); padding:10px 12px 14px 34px; }
   .sc-subtable{ box-shadow:none; border:1px solid var(--line); }
@@ -187,8 +191,8 @@
    caso contrário, localStorage do navegador (uso independente).
 ===================================================================== */
 
-const APP_VERSION = "1.0";
-const APP_VERSION_DATA = "2026-09-28";
+const APP_VERSION = "1.4";
+const APP_VERSION_DATA = "2026-10-07";
 const STORAGE_PREFIX = "biosyn_estoque_mistura_fina";
 const HAS_CLAUDE_STORAGE = (typeof window.storage !== "undefined");
 
@@ -383,8 +387,13 @@ function comboOnBlur(id){
   const atual = reg.items.find(i => String(i.value) === String(hidden.value));
   qEl.value = atual ? atual.label : "";
 }
+function materialDeReprocesso(material){
+  // mistura fina que tem um reprocesso cadastrado: ela é ingrediente do reprocesso e precisa de estoque lançado manualmente
+  return !!material && DB.misturasFinas.some(mf => mf.reprocesso && (mf.ingredientes||[]).some(i => i.materialId === material.id));
+}
 function isSemiacabado(material){
   if (!material) return false;
+  if (materialDeReprocesso(material)) return false;
   if (material.categoria === param("categoriaSemiacabado")) return true;
   // um material referenciado como produto de alguma mistura fina também é semiacabado
   return DB.misturasFinas.some(mf => mf.materialProduzidoId === material.id);
@@ -853,6 +862,9 @@ let PRODUCAO_SESSAO = null;
 let PESAGEM_MODO = "mistura";
 let PESANDO_MATERIAL_ID = null;
 let SUBSTITUINDO_INGREDIENTE_ID = null;
+let EXCLUINDO_INGREDIENTE_ID = null;
+let ADICIONANDO_ITEM = false;
+let INCLUINDO_ID = null;
 let ITENS_PRODUZIDOS_EXPANDIDO = new Set();
 let MOV_EDITANDO_ID = null;
 let ESTOQUE_FILTRO_VALIDADE = "";
@@ -2088,6 +2100,11 @@ function misturasFinasHTML(){
     <div class="sc-toolbar">
       <div class="sc-search">${icon("search")}<input id="misturasSearch" oninput="renderMisturasFinasTable()" placeholder="Buscar por nome ou código…"></div>
       ${comboHTML("misturasFiltroSetor", setorItemsFiltro, document.getElementById("misturasFiltroSetor")?.value||"", {placeholder:"Todos os setores", style:"max-width:220px;", onChange:()=>renderMisturasFinasTable()})}
+      <select class="sc-input" id="misturasFiltroCategoria" onchange="renderMisturasFinasTable()" style="max-width:200px;">
+        <option value="">Todas as categorias</option>
+        <option value="Mistura Fina">Mistura Fina</option>
+        <option value="Reprocesso">Reprocesso</option>
+      </select>
       <select class="sc-input" id="misturasOrdenar" onchange="renderMisturasFinasTable()" style="max-width:200px;">
         <option value="nome_asc">Nome (A-Z)</option>
         <option value="nome_desc">Nome (Z-A)</option>
@@ -2101,16 +2118,47 @@ function misturasFinasTableHTML(list){
   const materialMap = mapBy(DB.materiais);
   const setorMap = mapBy(DB.setores);
   if (list.length===0) return emptyHTML(DB.misturasFinas.length===0 ? "Nenhuma mistura fina cadastrada ainda." : "Nenhuma mistura fina encontrada para os filtros selecionados.");
-  return `<table class="sc-table"><thead><tr><th>Nome</th><th>Setor</th><th>Código</th><th class="num">Ingredientes</th><th></th></tr></thead>
+  return `<table class="sc-table"><thead><tr><th>Nome</th><th>Categoria</th><th>Setor</th><th>Código</th><th class="num">Ingredientes</th><th></th></tr></thead>
     <tbody>${list.map(mf=>`
       <tr><td>${escapeHtml(mf.nome)}</td>
+      <td><span class="sc-tag ${mf.reprocesso?"tag-atencao":"tag-entrada"}">${categoriaDaMistura(mf)}</span></td>
       <td>${escapeHtml(setorMap[mf.setorId]?.nome||"—")}</td>
       <td class="mono">${escapeHtml(mf.codigo || materialMap[mf.materialProduzidoId]?.codigo || "—")}</td>
       <td class="num mono">${(mf.ingredientes||[]).length}</td>
       <td class="rowActions">
+        ${mf.reprocesso ? "" : `<button class="sc-btn sc-btn-ghost" title="${reprocessoDaMistura(mf.id)?"Já existe o reprocesso desta mistura fina":"Cria a lista técnica de reprocesso desta mistura fina"}" onclick="cadastrarReprocesso('${mf.id}')">${icon("repeat",13)}<span>Cadastrar Reprocesso</span></button>`}
         <button class="sc-iconbtn" title="Editar" onclick="abrirFormMisturaFina('${mf.id}')">${icon("edit",14)}</button>
         <button class="sc-iconbtn" title="Excluir" onclick="deleteMisturaFina('${mf.id}')">${icon("trash",14)}</button>
       </td></tr>`).join("")}</tbody></table>`;
+}
+function categoriaDaMistura(mf){ return mf && mf.reprocesso ? "Reprocesso" : "Mistura Fina"; }
+function reprocessoDaMistura(mfId){ return DB.misturasFinas.find(m => m.reprocesso && m.misturaOrigemId === mfId); }
+function cadastrarReprocesso(mfId){
+  const origem = DB.misturasFinas.find(m=>m.id===mfId);
+  if (!origem) return;
+  if (origem.reprocesso){ alert("Esta já é uma lista técnica de reprocesso."); return; }
+  const existente = reprocessoDaMistura(mfId);
+  if (existente){ alert(`Já existe o reprocesso desta mistura fina: "${existente.nome}".`); return; }
+  if (!origem.materialProduzidoId){ alert("Esta mistura fina não tem material produzido vinculado."); return; }
+  if (!confirm(`Cadastrar "Reprocesso - ${origem.nome}"?\n\nSerá criada uma nova mistura fina categorizada como reprocesso, com 100% de "${origem.nome}" como único ingrediente. Para usá-la, a mistura fina já produzida precisa ser lançada manualmente no estoque por uma movimentação de entrada.`)) return;
+  const nome = `Reprocesso - ${origem.nome}`;
+  const codigosUsados = new Set([...DB.misturasFinas.map(m=>String(m.codigo||"").trim().toLowerCase()), ...DB.materiais.map(m=>String(m.codigo||"").trim().toLowerCase())]);
+  const base = String(origem.codigo || DB.materiais.find(m=>m.id===origem.materialProduzidoId)?.codigo || "").trim();
+  let codigo = "";
+  if (base){
+    codigo = `${base}-R`;
+    let n = 2;
+    while (codigosUsados.has(codigo.toLowerCase())) { codigo = `${base}-R${n}`; n++; }
+  }
+  const materialProduzidoId = sincronizarMaterialDaMistura(null, nome, origem.unidade, codigo);
+  DB.misturasFinas.push({
+    id: uid(), nome, codigo, setorId: origem.setorId, unidade: origem.unidade, materialProduzidoId,
+    ingredientes: [{ materialId: origem.materialProduzidoId, percentual: 100 }],
+    observacao: "Reprocesso cadastrado automaticamente a partir da mistura fina de origem.",
+    escopo: [...ALL_ROOM_IDS], reprocesso: true, misturaOrigemId: origem.id,
+  });
+  persist("misturasFinas");
+  render();
 }
 function filterMisturasFinasList(){
   const q = (document.getElementById("misturasSearch")?.value || "").toLowerCase();
@@ -2118,6 +2166,8 @@ function filterMisturasFinasList(){
   const ordenar = document.getElementById("misturasOrdenar")?.value || "nome_asc";
   let lista = DB.misturasFinas.filter(mf => {
     if (setorId && mf.setorId !== setorId) return false;
+    const catF = document.getElementById("misturasFiltroCategoria")?.value || "";
+    if (catF && categoriaDaMistura(mf) !== catF) return false;
     return `${mf.nome} ${mf.codigo}`.toLowerCase().includes(q);
   });
   const cmp = {
@@ -2348,7 +2398,7 @@ function definicoesHTML(){
   `);
 
   return pageHTML("Definições","Parâmetros de funcionamento do painel","",
-    `${secaoValidade}${secaoFaixas}${secaoGeral}`);
+    `${secaoValidade}${secaoFaixas}${definicoesSecaoInclusao()}${secaoGeral}`);
 }
 function definicoesSecaoValidade(){
   const formArea = OPEN_FORM?.type==="faixaValidade" ? faixaValidadeFormHTML(OPEN_FORM.editId) : "";
@@ -3376,7 +3426,7 @@ function reativarMovimento(id){
 function criarSessaoProducaoVazia(){
   return {
     misturaFinaId:"", data: todayISO(), lote:"", validade:"", documento:"", observacao:"", quantidadeAlvo:"",
-    pesagens:{}, confirmados:{}, loteEmEdicao:{}, substituicoes:{}, substituicaoEmEdicao:{},
+    pesagens:{}, confirmados:{}, loteEmEdicao:{}, substituicoes:{}, substituicaoEmEdicao:{}, aumentos:{}, inclusaoEdicao:{}, exclusoes:{}, adicionais:[], adicaoEmEdicao:"", adicaoJustificativa:"",
     itensIndividuais: [], materialIndividualAtual: "", loteIndividualEmEdicao: "",
   };
 }
@@ -3384,6 +3434,7 @@ function setPesagemModo(modo){
   PESAGEM_MODO = modo;
   PRODUCAO_SESSAO = criarSessaoProducaoVazia();
   PESANDO_MATERIAL_ID = null;
+  EXCLUINDO_INGREDIENTE_ID = null; ADICIONANDO_ITEM = false; INCLUINDO_ID = null;
   renderMain();
 }
 function producaoHTML(){
@@ -3435,7 +3486,7 @@ function producaoHTML(){
   } else {
     listaTecnica = listaTecnicaPesagemHTML();
   }
-  const todosPesados = mf ? mf.ingredientes.every(ing => (PRODUCAO_SESSAO.pesagens[ing.materialId]||[]).length>0) : false;
+  const todosPesados = mf ? ingredientesPendentesSessao(mf).length===0 : false;
 
   const algumPesado = mf ? Object.keys(PRODUCAO_SESSAO.pesagens).length > 0 : false;
   const rodape = `
@@ -3693,54 +3744,299 @@ function onProducaoMisturaChange(value){
   PRODUCAO_SESSAO.loteEmEdicao = {};
   PRODUCAO_SESSAO.substituicoes = {};
   PRODUCAO_SESSAO.substituicaoEmEdicao = {};
+  PRODUCAO_SESSAO.exclusoes = {};
+  PRODUCAO_SESSAO.aumentos = {};
+  PRODUCAO_SESSAO.inclusaoEdicao = {};
+  INCLUINDO_ID = null;
+  PRODUCAO_SESSAO.adicionais = [];
+  PRODUCAO_SESSAO.adicaoEmEdicao = "";
+  PRODUCAO_SESSAO.adicaoJustificativa = "";
   PESANDO_MATERIAL_ID = null;
   SUBSTITUINDO_INGREDIENTE_ID = null;
+  EXCLUINDO_INGREDIENTE_ID = null; ADICIONANDO_ITEM = false;
   renderMain();
 }
+function ingredientesPendentesSessao(mf){
+  const exc = PRODUCAO_SESSAO.exclusoes || {};
+  return mf.ingredientes.filter(ing => !exc[ing.materialId] && !(PRODUCAO_SESSAO.pesagens[ing.materialId]||[]).length);
+}
+function ingredientesFaltantesLote(mf, prod, consumos){
+  const exc = new Set((prod.ingredientesExcluidos||[]).map(x=>x.materialId));
+  const cobertos = new Set();
+  consumos.forEach(c => { cobertos.add(c.materialId); if (c.ingredienteOriginalId) cobertos.add(c.ingredienteOriginalId); });
+  return mf.ingredientes.filter(ing => !exc.has(ing.materialId) && !cobertos.has(ing.materialId));
+}
+function materiaisAumentoInclusao(){ return (DB.parametros && DB.parametros.materiaisAumentoInclusao) || []; }
+function permiteAumentoInclusao(materialId){ return !!materialId && materiaisAumentoInclusao().includes(materialId); }
+function definicoesSecaoInclusao(){
+  const lista = materiaisAumentoInclusao();
+  const mapa = mapBy(DB.materiais);
+  const itens = DB.materiais.filter(m=>!lista.includes(m.id)).slice().sort((a,b)=>a.nome.localeCompare(b.nome))
+    .map(m=>({value:m.id, label:`${m.nome}${m.codigo?` (${m.codigo})`:""}`}));
+  const corpo = lista.length===0
+    ? emptyHTML("Nenhum material cadastrado. Sem materiais aqui, o botão \"Aumentar Inclusão\" não aparece na produção.")
+    : `<table class="sc-table">
+        <thead><tr><th>Material</th><th>Código</th><th></th></tr></thead>
+        <tbody>${lista.map(id=>`
+          <tr>
+            <td>${escapeHtml(mapa[id]?.nome||"Material removido")}</td>
+            <td class="mono">${escapeHtml(mapa[id]?.codigo||"—")}</td>
+            <td class="rowActions"><button class="sc-iconbtn" title="Remover da lista" onclick="removerMaterialInclusao('${id}')">${icon("trash",14)}</button></td>
+          </tr>`).join("")}</tbody></table>`;
+  return sectionHTML("Materiais com aumento de inclusão","sliders","", `
+    <div class="sc-hint">Os materiais desta lista ganham o botão <strong>Aumentar Inclusão</strong> na pesagem da produção: antes de pesar, informa-se quanto o peso alvo do item será aumentado, e o item é pesado uma única vez.</div>
+    <div class="sc-fieldrow" style="align-items:flex-end; margin:10px 0;">
+      <label class="sc-field is-wide"><span>Material</span>${comboHTML("def_inclusao_mat", itens, "", {placeholder:"Digite para buscar o material…"})}</label>
+      <button class="sc-btn sc-btn-primary" onclick="adicionarMaterialInclusao()">${icon("plus",13)}<span>Adicionar material</span></button>
+    </div>
+    <div class="sc-tablewrap">${corpo}</div>`);
+}
+function adicionarMaterialInclusao(){
+  const id = document.getElementById("def_inclusao_mat")?.value;
+  if (!id) return;
+  salvarParametro("materiaisAumentoInclusao", [...materiaisAumentoInclusao(), id]);
+}
+function removerMaterialInclusao(id){
+  if (!confirm("Remover este material da lista de aumento de inclusão? O botão deixa de aparecer para ele na produção.")) return;
+  salvarParametro("materiaisAumentoInclusao", materiaisAumentoInclusao().filter(x=>x!==id));
+}
+function aumentoFormHTML(ingredienteId, material, alvoBase){
+  const ed = (PRODUCAO_SESSAO.inclusaoEdicao||{})[ingredienteId] || { motivo:"" };
+  const un = escapeHtml(material?.unidade||"");
+  return `
+    <div style="border-top:1px dashed var(--line); padding-top:10px;">
+      <div class="sc-hint">Informe quanto o peso alvo de <strong>${escapeHtml(material?.nome||"—")}</strong> será aumentado nesta produção. Depois, o item é pesado uma única vez, já com o novo alvo (peso alvo atual: ${fmtNum(alvoBase)} ${un}).</div>
+      <div style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap; margin-top:8px;">
+        <label class="sc-field"><span>Aumento de inclusão (${un}) <span style="color:var(--danger);">*</span></span><input class="sc-input" type="number" min="0" step="0.001" id="inc_qtd_${ingredienteId}" placeholder="Quanto a mais"></label>
+        <label class="sc-field is-wide"><span>Motivo (opcional)</span><input class="sc-input" id="inc_motivo_${ingredienteId}" value="${escapeHtml(ed.motivo||"")}" placeholder="Ex.: ajuste de inclusão solicitado pelo processo"></label>
+      </div>
+      <div id="inc_erro_${ingredienteId}"></div>
+      <div style="display:flex; gap:8px; margin-top:8px;">
+        <button class="sc-btn sc-btn-primary" onclick="confirmarAumento('${ingredienteId}')">${icon("check",13)}<span>Confirmar e pesar</span></button>
+        <button class="sc-btn sc-btn-ghost" onclick="cancelarAumento()">Cancelar</button>
+      </div>
+    </div>`;
+}
+function abrirAumento(ingredienteId){
+  INCLUINDO_ID = ingredienteId;
+  PESANDO_MATERIAL_ID = null; SUBSTITUINDO_INGREDIENTE_ID = null; EXCLUINDO_INGREDIENTE_ID = null; ADICIONANDO_ITEM = false;
+  renderMain();
+}
+function cancelarAumento(){ INCLUINDO_ID = null; renderMain(); }
+function confirmarAumento(ingredienteId){
+  const errBox = document.getElementById(`inc_erro_${ingredienteId}`);
+  const qtd = Number(document.getElementById(`inc_qtd_${ingredienteId}`)?.value);
+  const motivo = (document.getElementById(`inc_motivo_${ingredienteId}`)?.value || "").trim();
+  if (!qtd || qtd<=0){ errBox.innerHTML = `<div class="sc-error">${icon("alert",14)} Informe um aumento maior que zero.</div>`; return; }
+  if (!PRODUCAO_SESSAO.aumentos) PRODUCAO_SESSAO.aumentos = {};
+  PRODUCAO_SESSAO.aumentos[ingredienteId] = { quantidade: round3(qtd), motivo };
+  INCLUINDO_ID = null;
+  abrirPesagem(ingredienteId);
+}
+function desfazerAumento(ingredienteId){
+  if (!confirm("Desfazer o aumento de inclusão? O peso alvo volta ao valor da lista técnica.")) return;
+  if (PRODUCAO_SESSAO.aumentos) delete PRODUCAO_SESSAO.aumentos[ingredienteId];
+  if (PESANDO_MATERIAL_ID===ingredienteId) PESANDO_MATERIAL_ID = null;
+  renderMain();
+}
+function loteAlterado(m){ return !!(m && (m.temSubstituicao || m.temExclusao || m.temAdicao || m.temInclusao)); }
 function listaTecnicaPesagemHTML(){
   const mf = DB.misturasFinas.find(m=>m.id===PRODUCAO_SESSAO.misturaFinaId);
-  if (!mf) return emptyHTML("Mistura fina não encontrada.");
+  if (!mf) return emptyHTML("Lista técnica não encontrada.");
   const quantidadeAlvo = Number(PRODUCAO_SESSAO.quantidadeAlvo) || 0;
   const materialMap = mapBy(DB.materiais);
+  const exclusoes = PRODUCAO_SESSAO.exclusoes || {};
+  const avisoReprocesso = mf.reprocesso ? `<div class="sc-hint" style="background:var(--amber-bg); border:1px solid var(--amber); border-radius:6px; padding:8px 10px; margin-bottom:10px;">${icon("alert",12)} <strong>Reprocesso.</strong> O ingrediente é a mistura fina já produzida, que precisa estar em estoque: lance-a por uma movimentação de entrada (com o lote) antes de pesar.</div>` : "";
+  const caixaAlerta = (html) => `<div class="sc-hint" style="background:var(--amber-bg); border:1px solid var(--amber); border-radius:6px; padding:6px 10px; margin-top:2px;">${html}</div>`;
   const linhas = mf.ingredientes.map(ing => {
     const materialOriginal = materialMap[ing.materialId];
     const substituicao = PRODUCAO_SESSAO.substituicoes[ing.materialId];
+    const excluido = exclusoes[ing.materialId];
     const materialEfetivo = substituicao ? materialMap[substituicao.materialSubstitutoId] : materialOriginal;
-    const alvo = round3(ing.percentual/100 * quantidadeAlvo);
+    const alvoBase = round3(ing.percentual/100 * quantidadeAlvo);
+    const aumento = (PRODUCAO_SESSAO.aumentos||{})[ing.materialId];
+    const alvo = round3(alvoBase + (aumento ? aumento.quantidade : 0));
+    const permiteAumento = permiteAumentoInclusao(ing.materialId) || permiteAumentoInclusao(materialEfetivo?.id);
+    const incluindo = INCLUINDO_ID === ing.materialId;
     const alocacoes = PRODUCAO_SESSAO.pesagens[ing.materialId] || [];
     const pesando = PESANDO_MATERIAL_ID === ing.materialId;
     const substituindo = SUBSTITUINDO_INGREDIENTE_ID === ing.materialId;
+    const excluindo = EXCLUINDO_INGREDIENTE_ID === ing.materialId;
+    const btnExcluir = `<button class="sc-btn sc-btn-ghost" onclick="abrirExclusao('${ing.materialId}')">${icon("trash",13)}<span>Excluir item</span></button>`;
     let acaoHTML;
-    if (alocacoes.length>0){
+    if (excluido){
+      acaoHTML = `<span class="sc-tag tag-atencao">${icon("trash",11)} Item excluído</span>
+        <button class="sc-btn sc-btn-ghost" onclick="desfazerExclusao('${ing.materialId}')">${icon("x",13)}<span>Desfazer exclusão</span></button>`;
+    } else if (alocacoes.length>0){
       const total = round3(alocacoes.reduce((acc,a)=>acc+a.quantidade,0));
       const lotesTexto = alocacoes.map(a=>`${a.lote||"—"} (${fmtNum(a.quantidade)})`).join(", ");
       acaoHTML = `<span class="sc-tag tag-entrada">${icon("check",11)} Pesado: ${fmtNum(total)} ${escapeHtml(materialEfetivo?.unidade||"")} · ${escapeHtml(lotesTexto)}</span>
-        <button class="sc-iconbtn" title="Repesar" onclick="reabrirPesagem('${ing.materialId}')">${icon("edit",13)}</button>`;
-    } else if (pesando || substituindo){
+        <button class="sc-iconbtn" title="Repesar" onclick="reabrirPesagem('${ing.materialId}')">${icon("edit",13)}</button>
+        <button class="sc-iconbtn" title="Excluir este item da produção" onclick="abrirExclusao('${ing.materialId}')">${icon("trash",13)}</button>`;
+    } else if (pesando || substituindo || excluindo || incluindo){
       acaoHTML = "";
     } else {
       acaoHTML = `<button class="sc-btn sc-btn-ghost" onclick="abrirPesagem('${ing.materialId}')">${icon("edit",13)}<span>Pesar</span></button>
-        <button class="sc-btn sc-btn-ghost" onclick="${substituicao?`desfazerSubstituicao('${ing.materialId}')`:`abrirSubstituicao('${ing.materialId}')`}">${icon(substituicao?"x":"repeat",13)}<span>${substituicao?"Desfazer substituição":"Substituir"}</span></button>`;
+        <button class="sc-btn sc-btn-ghost" onclick="${substituicao?`desfazerSubstituicao('${ing.materialId}')`:`abrirSubstituicao('${ing.materialId}')`}">${icon(substituicao?"x":"repeat",13)}<span>${substituicao?"Desfazer substituição":"Substituir"}</span></button>
+        ${permiteAumento ? (aumento ? `<button class="sc-btn sc-btn-ghost" onclick="desfazerAumento('${ing.materialId}')">${icon("x",13)}<span>Desfazer aumento</span></button>` : `<button class="sc-btn sc-btn-ghost" onclick="abrirAumento('${ing.materialId}')">${icon("plus",13)}<span>Aumentar Inclusão</span></button>`) : ""}
+        ${btnExcluir}`;
     }
-    const avisoSubstituicao = substituicao ? `<div class="sc-hint" style="background:var(--amber-bg); border:1px solid var(--amber); border-radius:6px; padding:6px 10px; margin-top:2px;">${icon("alert",12)} Substituído por <strong>${escapeHtml(materialEfetivo?.nome||"—")}</strong> — Justificativa: ${escapeHtml(substituicao.justificativa)}</div>` : "";
-    const formPesagem = pesando ? pesagemFormHTML(ing.materialId, alvo, materialEfetivo) : "";
+    const avisoInclusao = aumento ? caixaAlerta(`${icon("alert",12)} <strong>Inclusão aumentada:</strong> +${fmtNum(aumento.quantidade)} ${escapeHtml(materialOriginal?.unidade||"")} — alvo de ${fmtNum(alvoBase)} para ${fmtNum(alvo)}${aumento.motivo?` — ${escapeHtml(aumento.motivo)}`:""}`) : "";
+    const formInclusao = incluindo ? aumentoFormHTML(ing.materialId, materialEfetivo, alvoBase) : "";
+    const avisoSubstituicao = substituicao ? caixaAlerta(`${icon("alert",12)} Substituído por <strong>${escapeHtml(materialEfetivo?.nome||"—")}</strong> — Justificativa: ${escapeHtml(substituicao.justificativa)}`) : "";
+    const avisoExclusao = excluido ? caixaAlerta(`${icon("alert",12)} <strong>Item excluído desta produção</strong> — Justificativa: ${escapeHtml(excluido.justificativa)}`) : "";
+    const formPesagem = (pesando && !excluido) ? pesagemFormHTML(ing.materialId, alvo, materialEfetivo) : "";
     const formSubstituicao = substituindo ? substituicaoFormHTML(ing.materialId, materialOriginal) : "";
-    return `<div class="sc-formpanel is-plain" style="margin-bottom:10px;">
+    const formExclusao = excluindo ? exclusaoFormHTML(ing.materialId, materialOriginal) : "";
+    return `<div class="sc-formpanel is-plain" style="margin-bottom:10px;${excluido?" opacity:.8;":""}">
       <div class="sc-formpanelBody" style="gap:8px;">
         <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
           <div>
-            <div style="font-weight:700; color:var(--navy);">${escapeHtml(materialOriginal?.nome||"—")}</div>
-            <div class="sc-hint">${fmtNum(ing.percentual)}% do total — Peso alvo: ${fmtNum(alvo)} ${escapeHtml(materialOriginal?.unidade||"")}</div>
+            <div style="font-weight:700; color:var(--navy);${excluido?" text-decoration:line-through;":""}">${escapeHtml(materialOriginal?.nome||"—")}</div>
+            <div class="sc-hint">${fmtNum(ing.percentual)}% do total — Peso alvo: ${fmtNum(alvo)} ${escapeHtml(materialOriginal?.unidade||"")}${aumento?` (lista técnica: ${fmtNum(alvoBase)} + aumento ${fmtNum(aumento.quantidade)})`:""}</div>
           </div>
           <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">${acaoHTML}</div>
         </div>
         ${avisoSubstituicao}
+        ${avisoExclusao}
+        ${avisoInclusao}
         ${formPesagem}
         ${formSubstituicao}
+        ${formExclusao}
+        ${formInclusao}
       </div>
     </div>`;
   }).join("");
-  return `<div id="pr_listaTecnicaWrap">${linhas}</div>`;
+
+  const adicionais = PRODUCAO_SESSAO.adicionais || [];
+  const linhasAdicionais = adicionais.map(add => {
+    const material = materialMap[add.materialId];
+    const alocacoes = PRODUCAO_SESSAO.pesagens[add.materialId] || [];
+    const pesando = PESANDO_MATERIAL_ID === add.materialId;
+    let acaoHTML;
+    if (alocacoes.length>0){
+      const total = round3(alocacoes.reduce((acc,a)=>acc+a.quantidade,0));
+      const lotesTexto = alocacoes.map(a=>`${a.lote||"—"} (${fmtNum(a.quantidade)})`).join(", ");
+      acaoHTML = `<span class="sc-tag tag-entrada">${icon("check",11)} Pesado: ${fmtNum(total)} ${escapeHtml(material?.unidade||"")} · ${escapeHtml(lotesTexto)}</span>
+        <button class="sc-iconbtn" title="Repesar" onclick="reabrirPesagem('${add.materialId}')">${icon("edit",13)}</button>`;
+    } else if (pesando){
+      acaoHTML = "";
+    } else {
+      acaoHTML = `<button class="sc-btn sc-btn-ghost" onclick="abrirPesagem('${add.materialId}')">${icon("edit",13)}<span>Pesar</span></button>`;
+    }
+    acaoHTML += ` <button class="sc-btn sc-btn-ghost" onclick="removerItemAdicional('${add.materialId}')">${icon("x",13)}<span>Remover item</span></button>`;
+    return `<div class="sc-formpanel is-plain" style="margin-bottom:10px; border-left:3px solid var(--amber);">
+      <div class="sc-formpanelBody" style="gap:8px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+          <div>
+            <div style="font-weight:700; color:var(--navy);">${escapeHtml(material?.nome||"—")} <span class="sc-tag tag-atencao">${icon("plus",11)} Item adicionado</span></div>
+            <div class="sc-hint">Fora da lista técnica — sem peso alvo definido.</div>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">${acaoHTML}</div>
+        </div>
+        ${caixaAlerta(`${icon("alert",12)} Item adicionado em relação à lista técnica original — Justificativa: ${escapeHtml(add.justificativa)}`)}
+        ${pesando ? pesagemFormHTML(add.materialId, 0, material) : ""}
+      </div>
+    </div>`;
+  }).join("");
+  const blocoAdicao = ADICIONANDO_ITEM
+    ? adicaoFormHTML(mf)
+    : `<div style="margin-top:4px;"><button class="sc-btn sc-btn-ghost" onclick="abrirAdicaoItem()">${icon("plus",13)}<span>Adicionar item</span></button></div>`;
+  const secaoAdicionais = `<div style="margin-top:14px;">
+      <div style="font-weight:700; color:var(--navy); margin-bottom:6px;">Itens adicionais (fora da lista técnica)</div>
+      ${linhasAdicionais}
+      ${blocoAdicao}
+    </div>`;
+  return `<div id="pr_listaTecnicaWrap">${avisoReprocesso}${linhas}${secaoAdicionais}</div>`;
+}
+function exclusaoFormHTML(ingredienteId, materialOriginal){
+  const temPesagem = (PRODUCAO_SESSAO.pesagens[ingredienteId]||[]).length>0;
+  return `
+    <div style="border-top:1px dashed var(--line); padding-top:10px;">
+      <div class="sc-hint">O item <strong>${escapeHtml(materialOriginal?.nome||"—")}</strong> não será usado nesta produção${temPesagem?" (as pesagens já feitas deste item serão descartadas)":""}. O lote ficará marcado como diferente da lista técnica original.</div>
+      <label class="sc-field"><span>Justificativa <span style="color:var(--danger);">*</span></span><textarea class="sc-input" id="exc_justificativa_${ingredienteId}" rows="2" placeholder="Ex.: item dispensado nesta batelada por ajuste de processo."></textarea></label>
+      <div id="exc_erro_${ingredienteId}"></div>
+      <div style="display:flex; gap:8px; margin-top:8px;">
+        <button class="sc-btn sc-btn-primary" onclick="confirmarExclusao('${ingredienteId}')">${icon("check",13)}<span>Confirmar exclusão</span></button>
+        <button class="sc-btn sc-btn-ghost" onclick="cancelarExclusao()">Cancelar</button>
+      </div>
+    </div>`;
+}
+function abrirExclusao(ingredienteId){
+  EXCLUINDO_INGREDIENTE_ID = ingredienteId;
+  PESANDO_MATERIAL_ID = null; SUBSTITUINDO_INGREDIENTE_ID = null; ADICIONANDO_ITEM = false;
+  renderMain();
+}
+function cancelarExclusao(){ EXCLUINDO_INGREDIENTE_ID = null; renderMain(); }
+function confirmarExclusao(ingredienteId){
+  const errBox = document.getElementById(`exc_erro_${ingredienteId}`);
+  const justificativa = (document.getElementById(`exc_justificativa_${ingredienteId}`)?.value || "").trim();
+  if (!justificativa){ errBox.innerHTML = `<div class="sc-error">${icon("alert",14)} Informe a justificativa da exclusão.</div>`; return; }
+  if (!PRODUCAO_SESSAO.exclusoes) PRODUCAO_SESSAO.exclusoes = {};
+  PRODUCAO_SESSAO.exclusoes[ingredienteId] = { justificativa };
+  delete PRODUCAO_SESSAO.pesagens[ingredienteId];
+  if (PRODUCAO_SESSAO.confirmados) delete PRODUCAO_SESSAO.confirmados[ingredienteId];
+  if (PRODUCAO_SESSAO.loteEmEdicao) delete PRODUCAO_SESSAO.loteEmEdicao[ingredienteId];
+  if (PRODUCAO_SESSAO.substituicoes) delete PRODUCAO_SESSAO.substituicoes[ingredienteId];
+  if (PRODUCAO_SESSAO.aumentos) delete PRODUCAO_SESSAO.aumentos[ingredienteId];
+  EXCLUINDO_INGREDIENTE_ID = null;
+  renderMain();
+}
+function desfazerExclusao(ingredienteId){
+  if (!confirm("Desfazer esta exclusão? O ingrediente volta a fazer parte da pesagem.")) return;
+  delete PRODUCAO_SESSAO.exclusoes[ingredienteId];
+  renderMain();
+}
+function adicaoFormHTML(mf){
+  const usados = new Set([...mf.ingredientes.map(i=>i.materialId), ...(PRODUCAO_SESSAO.adicionais||[]).map(a=>a.materialId)]);
+  const itens = DB.materiais.filter(m=>!usados.has(m.id)).slice().sort((a,b)=>a.nome.localeCompare(b.nome))
+    .map(m=>({value:m.id, label:`${m.nome}${m.codigo?` (${m.codigo})`:""}`}));
+  return `
+    <div style="border:1px dashed var(--line); border-radius:8px; padding:12px;">
+      <div class="sc-hint">Selecione o material que será acrescentado a esta produção e informe o motivo. O lote ficará marcado como diferente da lista técnica original.</div>
+      <div class="sc-fieldrow" style="margin-top:8px;">
+        <label class="sc-field is-wide"><span>Material a adicionar</span>${comboHTML("add_material", itens, PRODUCAO_SESSAO.adicaoEmEdicao||"", {placeholder:"Digite para buscar…", onChange:(v)=>onAdicaoMaterialChange(v)})}</label>
+      </div>
+      <label class="sc-field"><span>Justificativa <span style="color:var(--danger);">*</span></span><textarea class="sc-input" id="add_justificativa" rows="2" placeholder="Ex.: reforço pontual de formulação solicitado pela qualidade.">${escapeHtml(PRODUCAO_SESSAO.adicaoJustificativa||"")}</textarea></label>
+      <div id="add_erro"></div>
+      <div style="display:flex; gap:8px; margin-top:8px;">
+        <button class="sc-btn sc-btn-primary" onclick="confirmarAdicaoItem()">${icon("check",13)}<span>Confirmar adição</span></button>
+        <button class="sc-btn sc-btn-ghost" onclick="cancelarAdicaoItem()">Cancelar</button>
+      </div>
+    </div>`;
+}
+function abrirAdicaoItem(){
+  ADICIONANDO_ITEM = true;
+  PESANDO_MATERIAL_ID = null; SUBSTITUINDO_INGREDIENTE_ID = null; EXCLUINDO_INGREDIENTE_ID = null;
+  PRODUCAO_SESSAO.adicaoEmEdicao = ""; PRODUCAO_SESSAO.adicaoJustificativa = "";
+  renderMain();
+}
+function cancelarAdicaoItem(){ ADICIONANDO_ITEM = false; renderMain(); }
+function onAdicaoMaterialChange(value){
+  PRODUCAO_SESSAO.adicaoJustificativa = document.getElementById("add_justificativa")?.value || PRODUCAO_SESSAO.adicaoJustificativa || "";
+  PRODUCAO_SESSAO.adicaoEmEdicao = value;
+  renderMain();
+}
+function confirmarAdicaoItem(){
+  const errBox = document.getElementById("add_erro");
+  const materialId = PRODUCAO_SESSAO.adicaoEmEdicao || document.getElementById("add_material")?.value;
+  const justificativa = (document.getElementById("add_justificativa")?.value || "").trim();
+  if (!materialId){ errBox.innerHTML = `<div class="sc-error">${icon("alert",14)} Selecione o material a adicionar.</div>`; return; }
+  if (!justificativa){ errBox.innerHTML = `<div class="sc-error">${icon("alert",14)} Informe a justificativa da adição.</div>`; return; }
+  if (!PRODUCAO_SESSAO.adicionais) PRODUCAO_SESSAO.adicionais = [];
+  PRODUCAO_SESSAO.adicionais.push({ materialId, justificativa });
+  ADICIONANDO_ITEM = false;
+  PRODUCAO_SESSAO.adicaoEmEdicao = ""; PRODUCAO_SESSAO.adicaoJustificativa = "";
+  abrirPesagem(materialId);
+}
+function removerItemAdicional(materialId){
+  if (!confirm("Remover este item adicional? As pesagens já feitas dele serão descartadas.")) return;
+  PRODUCAO_SESSAO.adicionais = (PRODUCAO_SESSAO.adicionais||[]).filter(a=>a.materialId!==materialId);
+  delete PRODUCAO_SESSAO.pesagens[materialId];
+  if (PRODUCAO_SESSAO.confirmados) delete PRODUCAO_SESSAO.confirmados[materialId];
+  if (PRODUCAO_SESSAO.loteEmEdicao) delete PRODUCAO_SESSAO.loteEmEdicao[materialId];
+  if (PESANDO_MATERIAL_ID===materialId) PESANDO_MATERIAL_ID = null;
+  renderMain();
 }
 function substituicaoFormHTML(ingredienteId, materialOriginal){
   const itens = DB.materiais.filter(m=>m.id!==ingredienteId).slice().sort((a,b)=>a.nome.localeCompare(b.nome))
@@ -3835,7 +4131,7 @@ function pesagemFormHTML(ingredienteId, alvo, material){
       ${material?.codigoBarras ? `<div class="sc-hint" style="width:100%; margin:0 0 2px;">${icon("check",12)} Material confirmado por código de barras.</div>` : `<div class="sc-hint" style="width:100%; margin:0 0 2px;">${icon("alert",12)} Este material não tem código de barras cadastrado — confirmação por leitura não disponível.</div>`}
       ${resumoAlocacoes}
       <label class="sc-field is-wide"><span>Lote do material <span style="color:var(--danger);">*</span></span>${comboHTML(`pesar_lote_${ingredienteId}`, loteItens, loteEmEdicao, {placeholder:"Digite para buscar o lote…", onChange:(v)=>onLotePesagemChange(ingredienteId, v)})}</label>
-      <label class="sc-field"><span>Peso pesado neste lote</span><input class="sc-input" type="number" min="0" step="0.001" id="pesar_qtd_${ingredienteId}" placeholder="${totalPesado>0?`Faltam p/ alvo: ${fmtNum(faltamParaAlvo)}`:`Alvo: ${fmtNum(alvo)}`}" value="" ${loteEmEdicao?"":"disabled"}></label>
+      <label class="sc-field"><span>Peso pesado neste lote</span><input class="sc-input" type="number" min="0" step="0.001" id="pesar_qtd_${ingredienteId}" placeholder="${alvo>0 ? (totalPesado>0?`Faltam p/ alvo: ${fmtNum(faltamParaAlvo)}`:`Alvo: ${fmtNum(alvo)}`) : "Informe o peso"}" value="" ${loteEmEdicao?"":"disabled"}></label>
       <button class="sc-btn sc-btn-ghost" ${loteEmEdicao?"":"disabled"} onclick="adicionarAlocacaoPesagem('${ingredienteId}')">${icon("plus",13)}<span>Adicionar lote</span></button>
       <div id="pesar_erro_${ingredienteId}" style="width:100%;"></div>
       <div style="display:flex; gap:8px; width:100%;">
@@ -3927,7 +4223,7 @@ function concluirPesagemItem(materialId){
   const mf = DB.misturasFinas.find(m=>m.id===PRODUCAO_SESSAO.misturaFinaId);
   const ing = mf?.ingredientes.find(i=>i.materialId===materialId);
   const quantidadeAlvoTotal = Number(PRODUCAO_SESSAO.quantidadeAlvo) || 0;
-  const alvo = ing ? round3(ing.percentual/100 * quantidadeAlvoTotal) : 0;
+  const alvo = ing ? round3(ing.percentual/100 * quantidadeAlvoTotal + ((PRODUCAO_SESSAO.aumentos||{})[materialId]?.quantidade||0)) : 0;
   const alocacoes = PRODUCAO_SESSAO.pesagens[materialId] || [];
   const totalPesado = round3(alocacoes.reduce((acc,a)=>acc+a.quantidade,0));
   const substituicao = PRODUCAO_SESSAO.substituicoes[materialId];
@@ -3977,7 +4273,9 @@ function submitProducao(){
   if (!mf){ errWrap.innerHTML = `<div class="sc-error">${icon("alert",14)} Selecione a mistura fina.</div>`; return; }
   const pesadosIds = Object.keys(PRODUCAO_SESSAO.pesagens);
   if (pesadosIds.length===0){ errWrap.innerHTML = `<div class="sc-error">${icon("alert",14)} Pese ao menos um item antes de registrar.</div>`; return; }
-  const todosPesados = mf.ingredientes.every(ing => (PRODUCAO_SESSAO.pesagens[ing.materialId]||[]).length>0);
+  const todosPesados = ingredientesPendentesSessao(mf).length===0;
+  const adicionalSemPeso = (PRODUCAO_SESSAO.adicionais||[]).find(a => !(PRODUCAO_SESSAO.pesagens[a.materialId]||[]).length);
+  if (adicionalSemPeso){ errWrap.innerHTML = `<div class="sc-error">${icon("alert",14)} Pese ou remova o item adicionado "${escapeHtml(DB.materiais.find(x=>x.id===adicionalSemPeso.materialId)?.nome||"?")}" antes de registrar.</div>`; return; }
   const loteProduzido = (document.getElementById("pr_lote")?.value || PRODUCAO_SESSAO.lote || "").trim();
   if (!loteProduzido){ errWrap.innerHTML = `<div class="sc-error">${icon("alert",14)} Informe o lote produzido.</div>`; return; }
 
@@ -3999,7 +4297,7 @@ function submitProducao(){
   }
 
   if (!todosPesados){
-    const faltando = mf.ingredientes.filter(ing => !(PRODUCAO_SESSAO.pesagens[ing.materialId]||[]).length).map(ing => materialMap[ing.materialId]?.nome||"?").join(", ");
+    const faltando = ingredientesPendentesSessao(mf).map(ing => materialMap[ing.materialId]?.nome||"?").join(", ");
     const prosseguir = confirm(`Nem todos os itens da lista técnica foram pesados (faltam: ${faltando}). Clique em OK para registrar assim mesmo — o lote ficará marcado como pendente. Clique em Cancelar para continuar pesando.`);
     if (!prosseguir) return;
   }
@@ -4022,7 +4320,7 @@ function finalizarRegistroProducao(mf, loteProduzido, assinaturaOperador, penden
   const setorProducao = DB.setores.find(s=>s.id===mf.setorId);
   const agora = new Date().toISOString();
   const materialMap = mapBy(DB.materiais);
-  const ingredientesFaltantes = mf.ingredientes.filter(ing => !(PRODUCAO_SESSAO.pesagens[ing.materialId]||[]).length).map(ing => materialMap[ing.materialId]?.nome || ing.materialId);
+  const ingredientesFaltantes = ingredientesPendentesSessao(mf).map(ing => materialMap[ing.materialId]?.nome || ing.materialId);
   const quantidadeProduzida = round3(Object.values(PRODUCAO_SESSAO.pesagens).reduce((acc, alocacoes) => acc + alocacoes.reduce((a2,al)=>a2+al.quantidade,0), 0));
   const substituicoesResumo = mf.ingredientes
     .filter(ing => PRODUCAO_SESSAO.substituicoes[ing.materialId])
@@ -4031,6 +4329,9 @@ function finalizarRegistroProducao(mf, loteProduzido, assinaturaOperador, penden
       return { originalMaterialId: ing.materialId, substitutoMaterialId: sub.materialSubstitutoId, justificativa: sub.justificativa };
     });
 
+  const excluidosResumo = mf.ingredientes.filter(ing => (PRODUCAO_SESSAO.exclusoes||{})[ing.materialId]).map(ing => ({ materialId: ing.materialId, justificativa: PRODUCAO_SESSAO.exclusoes[ing.materialId].justificativa }));
+  const adicionadosResumo = (PRODUCAO_SESSAO.adicionais||[]).filter(a => (PRODUCAO_SESSAO.pesagens[a.materialId]||[]).length).map(a => ({ materialId: a.materialId, justificativa: a.justificativa }));
+  const inclusoesResumo = mf.ingredientes.filter(ing => (PRODUCAO_SESSAO.aumentos||{})[ing.materialId] && (PRODUCAO_SESSAO.pesagens[ing.materialId]||[]).length).map(ing => { const au = PRODUCAO_SESSAO.aumentos[ing.materialId]; const base = round3(ing.percentual/100 * (Number(PRODUCAO_SESSAO.quantidadeAlvo)||0)); return { materialId: (PRODUCAO_SESSAO.substituicoes[ing.materialId]?.materialSubstitutoId)||ing.materialId, quantidade: au.quantidade, alvoOriginal: base, alvoAjustado: round3(base+au.quantidade), justificativa: au.motivo||"" }; });
   const novosRegistros = [];
   novosRegistros.push({
     id: uid(), producaoId, misturaFinaId: mf.id,
@@ -4042,6 +4343,10 @@ function finalizarRegistroProducao(mf, loteProduzido, assinaturaOperador, penden
     assinatura: null, assinadoEm: null,
     pendenteMateriais: !!pendenteMateriais, ingredientesFaltantes,
     temSubstituicao: substituicoesResumo.length>0, substituicoes: substituicoesResumo,
+    temExclusao: excluidosResumo.length>0, ingredientesExcluidos: excluidosResumo,
+    temAdicao: adicionadosResumo.length>0, ingredientesAdicionados: adicionadosResumo,
+    temInclusao: inclusoesResumo.length>0, inclusoesAumentadas: inclusoesResumo,
+    temAlteracaoLT: (substituicoesResumo.length + excluidosResumo.length + adicionadosResumo.length + inclusoesResumo.length)>0,
     criadoEm: agora,
   });
   // envio imediato ao setor: por padrão o semiacabado não fica em estoque, sai assim que é produzido
@@ -4073,6 +4378,23 @@ function finalizarRegistroProducao(mf, loteProduzido, assinaturaOperador, penden
         assinaturaOperador: null, assinadoEmOperador: null,
         assinatura: null, assinadoEm: null,
         ingredienteOriginalId: substituicao ? ing.materialId : null,
+        inclusaoAumentada: !!(PRODUCAO_SESSAO.aumentos||{})[ing.materialId], justificativaInclusao: (PRODUCAO_SESSAO.aumentos||{})[ing.materialId]?.motivo||"",
+        criadoEm: agora,
+      });
+    });
+  });
+
+  adicionadosResumo.forEach(add => {
+    (PRODUCAO_SESSAO.pesagens[add.materialId]||[]).forEach(pesagem => {
+      novosRegistros.push({
+        id: uid(), producaoId, misturaFinaId: mf.id,
+        data: dataMov, materialId: add.materialId, tipoMovimentoId: tipoConsumoId,
+        setorId: setorProducao?.id || "", quantidade: pesagem.quantidade, delta: -pesagem.quantidade,
+        lote: pesagem.lote, validade: pesagem.validade||"", documento, observacao,
+        escopo: escopoMov, colaboradorId: "",
+        assinaturaOperador: null, assinadoEmOperador: null,
+        assinatura: null, assinadoEm: null,
+        ingredienteOriginalId: null, ingredienteAdicionado: true, justificativaAdicao: add.justificativa,
         criadoEm: agora,
       });
     });
@@ -4092,6 +4414,16 @@ function finalizarRegistroProducao(mf, loteProduzido, assinaturaOperador, penden
       if (!alocacoes) return;
       const material = materialMap[ing.materialId];
       alocacoes.forEach(pesagem => {
+        itensEtiqueta.push({
+          materialNome: material?.nome||"—", materialCodigo: material?.codigo||"",
+          loteIngrediente: pesagem.lote||"", misturaCodigo: mf.codigo||"", misturaLote: loteProduzido,
+          data: fmtDate(dataMov), peso: pesagem.quantidade, unidade: material?.unidade||"",
+        });
+      });
+    });
+    adicionadosResumo.forEach(add => {
+      const material = materialMap[add.materialId];
+      (PRODUCAO_SESSAO.pesagens[add.materialId]||[]).forEach(pesagem => {
         itensEtiqueta.push({
           materialNome: material?.nome||"—", materialCodigo: material?.codigo||"",
           loteIngrediente: pesagem.lote||"", misturaCodigo: mf.codigo||"", misturaLote: loteProduzido,
@@ -4190,6 +4522,10 @@ function misturasProduzidasHTML(toggleModo){
     if (filtroSituacao==="completo" && m.pendenteMateriais) return false;
     if (filtroSituacao==="faltam" && !m.pendenteMateriais) return false;
     if (filtroSituacao==="substituicao" && !m.temSubstituicao) return false;
+    if (filtroSituacao==="exclusao" && !m.temExclusao) return false;
+    if (filtroSituacao==="adicao" && !m.temAdicao) return false;
+    if (filtroSituacao==="inclusao" && !m.temInclusao) return false;
+    if (filtroSituacao==="alterado" && !loteAlterado(m)) return false;
     if (filtroSituacao==="aprovado" && !m.assinatura) return false;
     if (filtroSituacao==="pendente_aprovacao" && m.assinatura) return false;
     return true;
@@ -4216,8 +4552,12 @@ function misturasProduzidasHTML(toggleModo){
     const situacaoHTML = `${prod.pendenteMateriais
         ? `<span class="sc-tag tag-saida" title="Faltam: ${escapeHtml((prod.ingredientesFaltantes||[]).join(", "))}">${icon("alert",11)} Faltam materiais</span>`
         : `<span class="sc-tag tag-entrada">Completo</span>`}
-      ${prod.temSubstituicao ? `<span class="sc-tag tag-atencao" title="Houve substituição de insumo neste lote">${icon("repeat",11)} Substituição</span>` : ""}`;
-    const linha = `<tr class="sc-rowclick" onclick="toggleItemProduzido('${prod.id}')">
+      ${loteAlterado(prod) ? `<span class="sc-tag tag-atencao" style="font-weight:700;" title="Este lote foi produzido com diferença em relação à lista técnica original">${icon("alert",11)} Difere da lista técnica</span>` : ""}
+      ${prod.temSubstituicao ? `<span class="sc-tag tag-atencao" title="Houve substituição de insumo neste lote">${icon("repeat",11)} Substituição</span>` : ""}
+      ${prod.temExclusao ? `<span class="sc-tag tag-atencao" title="Houve exclusão de item da lista técnica neste lote">${icon("trash",11)} Item excluído</span>` : ""}
+      ${prod.temAdicao ? `<span class="sc-tag tag-atencao" title="Houve adição de item fora da lista técnica neste lote">${icon("plus",11)} Item adicionado</span>` : ""}
+      ${prod.temInclusao ? `<span class="sc-tag tag-atencao" title="Houve aumento de inclusão de Visie neste lote">${icon("plus",11)} Inclusão aumentada</span>` : ""}`;
+    const linha = `<tr class="sc-rowclick${loteAlterado(prod)?" is-alterado":""}" onclick="toggleItemProduzido('${prod.id}')">
       <td class="sc-expandcell">${icon(expandido?"chevronDown":"chevronRight",13)}</td>
       <td class="mono">${escapeHtml(prod.lote||"—")}</td>
       <td class="mono">${fmtDate(prod.data)}</td>
@@ -4232,17 +4572,21 @@ function misturasProduzidasHTML(toggleModo){
       const substituto = materialMap[sub.substitutoMaterialId];
       return `<div>${icon("repeat",12)} <strong>${escapeHtml(original?.nome||"—")}</strong> substituído por <strong>${escapeHtml(substituto?.nome||"—")}</strong> — ${escapeHtml(sub.justificativa||"")}</div>`;
     }).join("");
+    const exclusoesHTML = (prod.ingredientesExcluidos||[]).map(ex => `<div>${icon("trash",12)} <strong>${escapeHtml(materialMap[ex.materialId]?.nome||"—")}</strong> excluído da lista técnica — ${escapeHtml(ex.justificativa||"")}</div>`).join("");
+    const adicoesHTML = (prod.ingredientesAdicionados||[]).map(ad => `<div>${icon("plus",12)} <strong>${escapeHtml(materialMap[ad.materialId]?.nome||"—")}</strong> adicionado (fora da lista técnica) — ${escapeHtml(ad.justificativa||"")}</div>`).join("");
+    const inclusoesHTML = (prod.inclusoesAumentadas||[]).map(inc => `<div>${icon("plus",12)} <strong>${escapeHtml(materialMap[inc.materialId]?.nome||"—")}</strong> — inclusão aumentada em ${fmtNum(inc.quantidade)} ${escapeHtml(materialMap[inc.materialId]?.unidade||"")} (peso alvo de ${fmtNum(inc.alvoOriginal)} para ${fmtNum(inc.alvoAjustado)})${inc.justificativa?` — ${escapeHtml(inc.justificativa)}`:""}</div>`).join("");
     const detalhe = expandido ? `<tr class="sc-rowdetail"><td colspan="8">
       ${prod.pendenteMateriais ? `<div class="sc-hint sc-hint-alert">${icon("alert",13)} MFs faltando materiais: ${escapeHtml((prod.ingredientesFaltantes||[]).join(", "))}.</div>` : ""}
-      ${prod.temSubstituicao ? `<div class="sc-hint" style="background:var(--amber-bg); border:1px solid var(--amber); border-radius:6px; padding:8px 10px; display:flex; flex-direction:column; gap:4px;">${substituicoesHTML}</div>` : ""}
+      ${loteAlterado(prod) ? `<div class="sc-hint" style="background:var(--amber-bg); border:1px solid var(--amber); border-radius:6px; padding:8px 10px; display:flex; flex-direction:column; gap:4px;"><div style="font-weight:700;">${icon("alert",12)} Diferenças em relação à lista técnica original</div>${substituicoesHTML}${exclusoesHTML}${adicoesHTML}${inclusoesHTML}</div>` : ""}
       <table class="sc-table sc-subtable">
         <thead><tr><th>Ingrediente</th><th class="num">Quantidade utilizada</th><th>Lote do ingrediente</th><th></th></tr></thead>
         <tbody>${ingredientes.length===0 ? `<tr><td colspan="4" style="text-align:center;color:var(--ink-faint);">Nenhum ingrediente registrado para este lote.</td></tr>` : ingredientes.map(ing=>`
-          <tr><td>${escapeHtml(materialMap[ing.materialId]?.nome||"—")}${ing.ingredienteOriginalId ? ` <span class="sc-tag tag-atencao" style="margin-left:4px;" title="Substituiu ${escapeHtml(materialMap[ing.ingredienteOriginalId]?.nome||"—")}">substituição</span>` : ""}</td>
+          <tr><td>${escapeHtml(materialMap[ing.materialId]?.nome||"—")}${ing.ingredienteOriginalId ? ` <span class="sc-tag tag-atencao" style="margin-left:4px;" title="Substituiu ${escapeHtml(materialMap[ing.ingredienteOriginalId]?.nome||"—")}">substituição</span>` : ""}${ing.ingredienteAdicionado ? ` <span class="sc-tag tag-atencao" style="margin-left:4px;" title="${escapeHtml(ing.justificativaAdicao||"")}">adicionado</span>` : ""}${ing.inclusaoAumentada ? ` <span class="sc-tag tag-atencao" style="margin-left:4px;" title="${escapeHtml(ing.justificativaInclusao||"")}">inclusão aumentada</span>` : ""}</td>
           <td class="num mono">${fmtNum(ing.quantidade)} ${escapeHtml(materialMap[ing.materialId]?.unidade||"")}</td>
           <td class="mono">${ing.lote?escapeHtml(ing.lote):"(sem lote)"}</td>
           <td class="rowActions"><button class="sc-iconbtn" title="Imprimir etiqueta deste material" onclick="event.stopPropagation();imprimirEtiquetaMaterial('${ing.id}')">${icon("download",13)}</button></td>
-          </tr>`).join("")}</tbody>
+          </tr>`).join("")}${(prod.ingredientesExcluidos||[]).map(ex=>`
+          <tr style="opacity:.8;"><td><s>${escapeHtml(materialMap[ex.materialId]?.nome||"—")}</s> <span class="sc-tag tag-atencao" style="margin-left:4px;">excluído</span></td><td class="num mono">—</td><td colspan="2" class="sc-hint">${escapeHtml(ex.justificativa||"")}</td></tr>`).join("")}</tbody>
       </table>
       ${prod.pendenteMateriais ? (ITENS_PRODUZIDOS_COMPLETANDO===prod.id
         ? completarPendenciaHTML(prod)
@@ -4276,7 +4620,11 @@ function misturasProduzidasHTML(toggleModo){
             <option value="">Todas as situações</option>
             <option value="completo">Completo</option>
             <option value="faltam">Faltam materiais</option>
+            <option value="alterado">Difere da lista técnica</option>
             <option value="substituicao">Com substituição</option>
+            <option value="exclusao">Com item excluído</option>
+            <option value="adicao">Com item adicionado</option>
+            <option value="inclusao">Com inclusão aumentada</option>
             <option value="aprovado">Aprovado</option>
             <option value="pendente_aprovacao">Pendente aprovação</option>
           </select>
@@ -4507,7 +4855,7 @@ function gerarRelatorioProducaoExcel(){
       "Data": fmtDate(m.data),
       "Quantidade": m.quantidade,
       "Unidade": materialMap[m.materialId]?.unidade || "",
-      "Situação": (m.pendenteMateriais ? "Faltam materiais" : "Completo") + (m.temSubstituicao ? " + Substituição" : ""),
+      "Situação": (m.pendenteMateriais ? "Faltam materiais" : "Completo") + (m.temSubstituicao ? " + Substituição" : "") + (m.temExclusao ? " + Item excluído" : "") + (m.temAdicao ? " + Item adicionado" : "") + (m.temInclusao ? " + Inclusão aumentada" : ""),
       "Aprovação do setor": m.assinatura ? "Aprovado" : "Pendente",
     };
   });
@@ -4663,7 +5011,7 @@ function gerarRelatorioPesagem(prodId){
     const alvo = receitaIng ? round3(receitaIng.percentual/100 * prod.quantidade) : null;
     return `<tr>
       <td>${i+1}</td>
-      <td>${escapeHtml(material?.nome||"—")}</td>
+      <td>${escapeHtml(material?.nome||"—")}${ing.ingredienteAdicionado?" (item adicionado)":""}${ing.inclusaoAumentada?" (inclusão aumentada)":""}${ing.ingredienteOriginalId?` (substituiu ${escapeHtml(materialMap[ing.ingredienteOriginalId]?.nome||"—")})`:""}</td>
       <td>${escapeHtml(material?.codigo||"—")}</td>
       <td>${receitaIng?fmtNum(receitaIng.percentual)+"%":"—"}</td>
       <td>${alvo!==null?fmtNum(alvo):"—"} ${escapeHtml(material?.unidade||"")}</td>
@@ -4675,6 +5023,8 @@ function gerarRelatorioPesagem(prodId){
   const faltandoHTML = prod.pendenteMateriais
     ? `<div class="aviso">Lote com materiais pendentes: ${escapeHtml((prod.ingredientesFaltantes||[]).join(", "))}.</div>`
     : "";
+  const alteradoHTML = loteAlterado(prod) ? `<div class="aviso"><strong>Lote com diferença em relação à lista técnica original.</strong>${(prod.substituicoes||[]).map(sub=>`<br>Substituição: ${escapeHtml(materialMap[sub.originalMaterialId]?.nome||"—")} → ${escapeHtml(materialMap[sub.substitutoMaterialId]?.nome||"—")} — ${escapeHtml(sub.justificativa||"")}`).join("")}${(prod.ingredientesExcluidos||[]).map(ex=>`<br>Item excluído: ${escapeHtml(materialMap[ex.materialId]?.nome||"—")} — ${escapeHtml(ex.justificativa||"")}`).join("")}${(prod.ingredientesAdicionados||[]).map(ad=>`<br>Item adicionado: ${escapeHtml(materialMap[ad.materialId]?.nome||"—")} — ${escapeHtml(ad.justificativa||"")}`).join("")}${(prod.inclusoesAumentadas||[]).map(inc=>`<br>Inclusão aumentada: ${escapeHtml(materialMap[inc.materialId]?.nome||"—")} +${fmtNum(inc.quantidade)} ${escapeHtml(materialMap[inc.materialId]?.unidade||"")} (peso alvo de ${fmtNum(inc.alvoOriginal)} para ${fmtNum(inc.alvoAjustado)})${inc.justificativa?` — ${escapeHtml(inc.justificativa)}`:""}`).join("")}</div>` : "";
+  const linhasExcluidos = (prod.ingredientesExcluidos||[]).map(ex => `<tr><td>—</td><td><s>${escapeHtml(materialMap[ex.materialId]?.nome||"—")}</s> (excluído)</td><td>${escapeHtml(materialMap[ex.materialId]?.codigo||"—")}</td><td>—</td><td>—</td><td>não utilizado</td><td>—</td></tr>`).join("");
 
   const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Relatório de Pesagem — ${escapeHtml(prod.lote||"")}</title>
 <style>
@@ -4699,9 +5049,10 @@ function gerarRelatorioPesagem(prodId){
   <div class="info"><strong>Quantidade produzida:</strong> ${fmtNum(prod.quantidade)} ${escapeHtml(produzido?.unidade||"")}</div>
   <div class="info"><strong>Aprovação do setor:</strong> ${prod.assinatura?"Aprovado":"Pendente"}</div>
   ${faltandoHTML}
+  ${alteradoHTML}
   <table>
     <thead><tr><th>#</th><th>Ingrediente</th><th>Código</th><th>%</th><th>Peso alvo</th><th>Peso pesado</th><th>Lote</th></tr></thead>
-    <tbody>${linhasIngredientes || `<tr><td colspan="7" style="text-align:center;color:#777;">Nenhum ingrediente pesado neste lote.</td></tr>`}</tbody>
+    <tbody>${(linhasIngredientes + linhasExcluidos) || `<tr><td colspan="7" style="text-align:center;color:#777;">Nenhum ingrediente pesado neste lote.</td></tr>`}</tbody>
   </table>
   <div class="footnote">Documento gerado automaticamente pelo Painel de Controle de Estoque — Biosyn, em ${escapeHtml(fmtDate(todayISO()))}.</div>
   <div class="no-print"><button onclick="window.print()">Imprimir / Salvar como PDF</button></div>
@@ -4732,7 +5083,7 @@ function completarPendenciaHTML(prod){
   const mf = DB.misturasFinas.find(m=>m.id===prod.misturaFinaId);
   if (!mf) return `<div class="sc-hint sc-hint-alert">Mistura fina não encontrada — não é possível completar.</div>`;
   const consumosExistentes = DB.movimentos.filter(m=>m.producaoId===prod.producaoId && tipoMap[m.tipoMovimentoId]?.especial==="producao_consumo" && !m.anulado);
-  const faltantes = mf.ingredientes.filter(ing => !consumosExistentes.some(c=>c.materialId===ing.materialId));
+  const faltantes = ingredientesFaltantesLote(mf, prod, consumosExistentes);
   if (faltantes.length===0){
     return `<div class="sc-hint" style="margin-top:10px;">Todos os ingredientes já foram pesados para este lote.</div>`;
   }
@@ -4978,7 +5329,7 @@ function registrarPesagensPendentes(prodId){
 
   // recalcula a pendência: pode ter sido resolvida por completo ou só parcialmente
   const consumosAtualizados = DB.movimentos.filter(m => m.producaoId===prod.producaoId && tipoMap[m.tipoMovimentoId]?.especial==="producao_consumo" && !m.anulado);
-  const aindaFaltando = mf.ingredientes.filter(ing => !consumosAtualizados.some(c=>c.materialId===ing.materialId)).map(ing => materialMap[ing.materialId]?.nome || ing.materialId);
+  const aindaFaltando = ingredientesFaltantesLote(mf, prod, consumosAtualizados).map(ing => materialMap[ing.materialId]?.nome || ing.materialId);
   DB.movimentos = DB.movimentos.map(m => (m.producaoId===prod.producaoId && m.tipoMovimentoId===tipoEntradaId)
     ? { ...m, pendenteMateriais: aindaFaltando.length>0, ingredientesFaltantes: aindaFaltando }
     : m);
